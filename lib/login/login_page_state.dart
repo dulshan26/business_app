@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:own/pages/dashboard.dart';
+import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Login1 extends StatefulWidget {
   const Login1({super.key});
@@ -13,7 +14,7 @@ class _Login1State extends State<Login1> {
   //store text fields
   final _emailController = TextEditingController();
   final _passwordConttroller = TextEditingController();
-
+  final _formKey = GlobalKey<FormState>();
   //link to firebase auth
   Future signIn() async {
     try {
@@ -21,11 +22,11 @@ class _Login1State extends State<Login1> {
         email: _emailController.text.trim(),
         password: _passwordConttroller.text.trim(),
       );
-      // navigate to dashboard page
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => DashboardPage()),
-      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString("email", _emailController.text.trim());
+      await prefs.setString("password", _passwordConttroller.text.trim());
+      context.goNamed("dashboard");
 
       // login success - show success message
       ScaffoldMessenger.of(context).showSnackBar(
@@ -65,96 +66,103 @@ class _Login1State extends State<Login1> {
         child: SingleChildScrollView(
           child: SizedBox(
             width: 400,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                  width: 50,
-                  height: 50,
-                  child: Image.asset("asset/logo.jpg"),
-                ),
-                Text(
-                  "Hello Again",
-                  style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
-                ),
-                Text("Welcome back, you've been missed"),
-                TextField(
-                  controller: _emailController,
-                  decoration: InputDecoration(
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white),
-                      borderRadius: BorderRadius.circular(12),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(100),
                     ),
-                    hintText: "Email",
-                    fillColor: Colors.grey[200],
-                    filled: true,
+                    width: 50,
+                    height: 50,
+                    child: Image.asset("asset/logo.jpg"),
                   ),
-                ),
-                SizedBox(height: 20),
-                TextField(
-                  controller: _passwordConttroller,
-                  decoration: InputDecoration(
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    hintText: "Password",
-                    fillColor: Colors.grey[200],
-                    filled: true,
+                  Text(
+                    "Hello Again",
+                    style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
                   ),
-                ),
-                SizedBox(height: 20),
-                Container(
-                  width: 380,
-                  height: 50,
-
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: TextButton(
-                    onPressed: () {
-                      signIn();
-                    },
-                    child: Text(
-                      "Sign Up",
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.grey[600],
+                  Text("Welcome back, you've been missed"),
+                  TextField(
+                    controller: _emailController,
+                    autofillHints: [AutofillHints.email],
+                    decoration: InputDecoration(
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white),
+                        borderRadius: BorderRadius.circular(12),
                       ),
+                      hintText: "Email",
+                      fillColor: Colors.grey[200],
+                      filled: true,
                     ),
+                    textInputAction: TextInputAction.next,
                   ),
-                ),
-                Row(
-                  children: [
-                    Text(
-                      "If not Registor  , ",
-                      style: TextStyle(fontWeight: FontWeight.bold),
+                  SizedBox(height: 20),
+                  TextField(
+                    controller: _passwordConttroller,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      hintText: "Password",
+                      fillColor: Colors.grey[200],
+                      filled: true,
                     ),
-                    TextButton(
+                    textInputAction: TextInputAction.done,
+                  ),
+                  SizedBox(height: 20),
+                  Container(
+                    width: 380,
+                    height: 50,
+
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: TextButton(
                       onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text("Registor page will be soon"),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
+                        signIn();
                       },
                       child: Text(
-                        "Click Here",
+                        "Sign Up",
                         style: TextStyle(
+                          fontSize: 20,
                           fontWeight: FontWeight.bold,
                           color: Colors.grey[600],
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                  Row(
+                    children: [
+                      Text(
+                        "If not Registor  , ",
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text("Registor page will be soon"),
+                              backgroundColor: Colors.green,
+                            ),
+                          );
+                        },
+                        child: Text(
+                          "Click Here",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey[600],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),

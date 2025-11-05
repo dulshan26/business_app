@@ -1,7 +1,7 @@
 // lib/widgets/recent_order_item.dart
 import 'package:flutter/material.dart';
-import 'package:own/constant/app_constant.dart';
-import 'package:own/models/order_model.dart';
+import 'package:own/app/constant/app_constant.dart';
+import 'package:own/sales/order_model.dart';
 
 class RecentOrderItem extends StatelessWidget {
   final Order order;
@@ -14,18 +14,21 @@ class RecentOrderItem extends StatelessWidget {
     String statusText;
 
     switch (order.status) {
-      case OrderStatus.Pending:
+      case OrderStatus.pending:
         chipColor = AppColors.pendingStatus;
         statusText = 'Pending';
         break;
-      case OrderStatus.Sent:
+      case OrderStatus.sent:
         chipColor = AppColors.sentStatus;
         statusText = 'Sent';
         break;
-      case OrderStatus.CashCollect:
+      case OrderStatus.cashCollect:
         chipColor = AppColors.cashCollectStatus;
         statusText = 'Collected';
         break;
+      default:
+        chipColor = Colors.red;
+        statusText = 'cancel';
     }
 
     return Chip(

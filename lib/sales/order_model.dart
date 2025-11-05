@@ -1,6 +1,6 @@
 // lib/models/order_model.dart
 
-enum OrderStatus { Pending, Sent, CashCollect }
+enum OrderStatus { pending, sent, cashCollect, cancel }
 
 class Order {
   final String id;
@@ -14,14 +14,51 @@ class Order {
     required this.amount,
     required this.status,
   });
+
+  // ✅ Factory to create Order from Firestore Map
+  factory Order.fromMap(Map<String, dynamic> data) {
+    return Order(
+      id: data['id'] ?? '',
+      customerName: data['customerName'] ?? '',
+      amount: (data['amount'] ?? 0).toDouble(),
+      status: _statusFromString(data['status']),
+    );
+  }
+
+  // ✅ Convert Order to Map (for saving back to Firestore)
+  Map<String, dynamic> toMap() {
+    return {
+      'id': id,
+      'customerName': customerName,
+      'amount': amount,
+      'status': status.toString().split('.').last,
+    };
+  }
+
+  // Helper to parse status safely
+  static OrderStatus _statusFromString(String? status) {
+    switch (status) {
+      case 'Pending':
+        return OrderStatus.pending;
+      case 'Sent':
+        return OrderStatus.sent;
+      case 'CashCollect':
+        return OrderStatus.cashCollect;
+      case ' Cancel':
+        return OrderStatus.cancel;
+      default:
+        return OrderStatus.cancel;
+    }
+  }
 }
 
 // Simple Item model
 class ItemModel {
   final String id;
   final String name;
+  int quantity;
 
-  ItemModel({required this.id, required this.name});
+  ItemModel({required this.id, required this.name, this.quantity = 1});
 }
 
 final List<ItemModel> itemList = [

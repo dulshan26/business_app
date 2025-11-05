@@ -1,7 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:own/login/login_page_state.dart';
-import 'package:own/pages/dashboard.dart';
+import 'package:own/dashboard.dart';
 
 class MainPage extends StatelessWidget {
   const MainPage({super.key});

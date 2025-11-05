@@ -10,6 +10,7 @@ class AppColors {
   static const Color pendingStatus = Colors.orange;
   static const Color sentStatus = Colors.blue;
   static const Color cashCollectStatus = Colors.green;
+  static const Color cancel = Colors.red;
 }
 
 // Text Styles
