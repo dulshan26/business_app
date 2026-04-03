@@ -11,6 +11,7 @@ class AppColors {
   static const Color sentStatus = Colors.blue;
   static const Color cashCollectStatus = Colors.green;
   static const Color cancel = Colors.red;
+  static const Color background = Color.fromARGB(192, 82, 81, 81);
 }
 
 // Text Styles

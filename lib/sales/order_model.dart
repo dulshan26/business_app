@@ -7,12 +7,14 @@ class Order {
   final String customerName;
   final double amount;
   final OrderStatus status;
+  final String phone;
 
   Order({
     required this.id,
     required this.customerName,
     required this.amount,
     required this.status,
+    required this.phone,
   });
 
   // ✅ Factory to create Order from Firestore Map
@@ -22,6 +24,7 @@ class Order {
       customerName: data['customerName'] ?? '',
       amount: (data['amount'] ?? 0).toDouble(),
       status: _statusFromString(data['status']),
+      phone: data['phone'] ?? '0',
     );
   }
 
@@ -58,7 +61,20 @@ class ItemModel {
   final String name;
   int quantity;
 
-  ItemModel({required this.id, required this.name, this.quantity = 1});
+  ItemModel({required this.id, required this.name, this.quantity = 0});
+
+  //save from the firebase
+  factory ItemModel.fromMap(Map<String, dynamic> data, String docId) {
+    return ItemModel(
+      id: docId,
+      name: data['name'] ?? '',
+      quantity: data['quantity'] ?? '',
+    );
+  }
+  //data read form firebase
+  Map<String, dynamic> toMap() {
+    return {'name': name, 'quantity': quantity};
+  }
 }
 
 final List<ItemModel> itemList = [

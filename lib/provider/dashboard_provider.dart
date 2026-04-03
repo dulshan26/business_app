@@ -36,4 +36,6 @@ class DashboardProvider with ChangeNotifier {
       notifyListeners();
     });
   }
+
+  void logout(BuildContext context) {}
 }

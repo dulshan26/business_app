@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:own/firebase/firestore.dart';
 
-import 'package:own/sales/pages/sale.dart';
+import 'package:own/sales/pages/salepage/sales_page_summery.dart';
 import 'package:own/sales/widget/order_details.dart';
 
 class SalesListPage extends StatefulWidget {
@@ -28,7 +28,7 @@ class _SalesListPageState extends State<SalesListPage> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const SalesOrderPage()),
+                MaterialPageRoute(builder: (context) => const StockPage1()),
               );
             },
           ),
@@ -132,6 +132,7 @@ class _SalesListPageState extends State<SalesListPage> {
                                       order: {...order},
                                       onTap: () {},
                                       onDelete: () {},
+                                      orderId: '',
                                     );
                                   }).toList(),
                                 ),
@@ -146,6 +147,15 @@ class _SalesListPageState extends State<SalesListPage> {
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const StockPage1()),
+          );
+        },
+        child: const Icon(Icons.add),
       ),
     );
   }

@@ -55,7 +55,7 @@ class _SummerypageState extends State<SummeryPage> {
                       ),
                       SummaryCard(
                         title: 'Completed Orders',
-                        value: stats['completedOrders'].toString(),
+                        value: stats['collectedAmount'].toString(),
                         icon: Icons.check_circle,
                         iconColor: Colors.green,
                       ),

@@ -40,6 +40,7 @@ void showDeliveryPopup(BuildContext context, Map<String, dynamic> order) {
                         value: 'CashCollect',
                         child: Text('Cash Collect'),
                       ),
+                      DropdownMenuItem(value: 'Cancel', child: Text('Cancel')),
                     ],
                     onChanged: (value) {
                       setStateDialog(() => status = value!);
@@ -115,6 +116,8 @@ void showDeliveryPopup(BuildContext context, Map<String, dynamic> order) {
                       );
                     }
                   } catch (e) {
+                    if (!context.mounted) return;
+
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Error updating: $e')),
                     );

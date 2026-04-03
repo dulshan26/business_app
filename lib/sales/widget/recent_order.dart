@@ -56,7 +56,7 @@ class RecentOrderItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Order #${order.id}',
+                    order.customerName,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       color: AppColors.textPrimary,
@@ -64,7 +64,7 @@ class RecentOrderItem extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    order.customerName,
+                    order.phone,
                     style: const TextStyle(color: AppColors.textSecondary),
                   ),
                 ],

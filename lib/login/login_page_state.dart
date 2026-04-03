@@ -11,24 +11,60 @@ class Login1 extends StatefulWidget {
 }
 
 class _Login1State extends State<Login1> {
-  //store text fields
   final _emailController = TextEditingController();
-  final _passwordConttroller = TextEditingController();
+  final _passwordController = TextEditingController(); // fixed typo
   final _formKey = GlobalKey<FormState>();
-  //link to firebase auth
-  Future signIn() async {
+  bool _isLoading = true; // show loader while checking saved login
+
+  @override
+  void initState() {
+    super.initState();
+    _checkSavedLogin(); // auto-login check on startup
+  }
+
+  // ✅ Check if user is already logged in
+  Future<void> _checkSavedLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedEmail = prefs.getString("email");
+    final savedPassword = prefs.getString("password");
+
+    if (savedEmail != null && savedPassword != null) {
+      try {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: savedEmail,
+          password: savedPassword,
+        );
+        if (!mounted) return;
+        context.goNamed("dashboard"); // skip login screen
+        return;
+      } catch (e) {
+        // Saved credentials are invalid, clear them
+        await prefs.remove("email");
+        await prefs.remove("password");
+      }
+    }
+
+    // No saved login — show the login form
+    setState(() => _isLoading = false);
+  }
+
+  Future<void> signIn() async {
+    if (!_formKey.currentState!.validate()) return;
+
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
-        password: _passwordConttroller.text.trim(),
+        password: _passwordController.text.trim(),
       );
 
+      // ✅ Save credentials for next app launch
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString("email", _emailController.text.trim());
-      await prefs.setString("password", _passwordConttroller.text.trim());
+      await prefs.setString("password", _passwordController.text.trim());
+
+      if (!mounted) return;
       context.goNamed("dashboard");
 
-      // login success - show success message
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text("✅ Login Successful"),
@@ -37,7 +73,6 @@ class _Login1State extends State<Login1> {
       );
     } on FirebaseAuthException catch (e) {
       String errorMessage;
-
       if (e.code == 'user-not-found') {
         errorMessage = "❌ No user found with this email";
       } else if (e.code == 'wrong-password') {
@@ -45,22 +80,37 @@ class _Login1State extends State<Login1> {
       } else {
         errorMessage = "⚠️ ${e.message}";
       }
-
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(errorMessage), backgroundColor: Colors.red),
       );
     }
   }
 
+  // ✅ Call this on logout button to clear saved login
+  Future<void> signOut() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove("email");
+    await prefs.remove("password");
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    context.goNamed("login");
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
-    _passwordConttroller.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    // Show loading spinner while checking saved credentials
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
       body: Center(
         child: SingleChildScrollView(
@@ -79,17 +129,18 @@ class _Login1State extends State<Login1> {
                     height: 50,
                     child: Image.asset("asset/logo.jpg"),
                   ),
-                  Text(
+                  const Text(
                     "Hello Again",
                     style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
                   ),
-                  Text("Welcome back, you've been missed"),
-                  TextField(
+                  const Text("Welcome back, you've been missed"),
+                  const SizedBox(height: 20),
+                  TextFormField(
                     controller: _emailController,
-                    autofillHints: [AutofillHints.email],
+                    autofillHints: const [AutofillHints.email],
                     decoration: InputDecoration(
                       enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.white),
+                        borderSide: const BorderSide(color: Colors.white),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       hintText: "Email",
@@ -97,14 +148,16 @@ class _Login1State extends State<Login1> {
                       filled: true,
                     ),
                     textInputAction: TextInputAction.next,
+                    validator: (val) =>
+                        val == null || val.isEmpty ? "Enter your email" : null,
                   ),
-                  SizedBox(height: 20),
-                  TextField(
-                    controller: _passwordConttroller,
+                  const SizedBox(height: 20),
+                  TextFormField(
+                    controller: _passwordController,
                     obscureText: true,
                     decoration: InputDecoration(
                       enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: Colors.white),
+                        borderSide: const BorderSide(color: Colors.white),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       hintText: "Password",
@@ -112,22 +165,22 @@ class _Login1State extends State<Login1> {
                       filled: true,
                     ),
                     textInputAction: TextInputAction.done,
+                    validator: (val) => val == null || val.isEmpty
+                        ? "Enter your password"
+                        : null,
                   ),
-                  SizedBox(height: 20),
+                  const SizedBox(height: 20),
                   Container(
                     width: 380,
                     height: 50,
-
                     decoration: BoxDecoration(
                       color: Colors.grey[200],
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: TextButton(
-                      onPressed: () {
-                        signIn();
-                      },
+                      onPressed: signIn,
                       child: Text(
-                        "Sign Up",
+                        "Sign In",
                         style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
@@ -138,15 +191,15 @@ class _Login1State extends State<Login1> {
                   ),
                   Row(
                     children: [
-                      Text(
-                        "If not Registor  , ",
+                      const Text(
+                        "Not registered? ",
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                       TextButton(
                         onPressed: () {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text("Registor page will be soon"),
+                              content: Text("Register page coming soon"),
                               backgroundColor: Colors.green,
                             ),
                           );

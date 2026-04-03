@@ -1,9 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:own/api_handler/royal.dart';
 import 'package:own/sales/order_model.dart';
-import 'package:own/sales/widget/sales_edit.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class FirestoreService {
   final CollectionReference salesCollection = FirebaseFirestore.instance
@@ -111,17 +110,22 @@ class FirestoreService {
           .get();
 
       double totalAmount = 0;
+      double collectedAmount = 0;
       for (var doc in totalSalesQuery.docs) {
         final data = doc.data() as Map<String, dynamic>;
         totalAmount += (data['amount'] ?? 0).toDouble();
-      }
 
+        if ((data['status'] ?? '') == 'CashCollect') {
+          collectedAmount += (data['amount'] ?? 0).toDouble();
+        }
+      }
       return {
         'totalOrders': totalSalesQuery.docs.length,
         'totalAmount': totalAmount,
         'pendingOrders': pendingQuery.docs.length,
         'sentOrders': sentQuery.docs.length,
         'collectedOrders': collectedQuery.docs.length,
+        'collectedAmount': collectedAmount,
       };
     } catch (e) {
       throw Exception('Failed to get sales statistics: $e');
@@ -162,106 +166,32 @@ class FirestoreService {
     }
   }
 
-  void editOrder(Map<String, dynamic> order, BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) =>
-          EditSalesOrderDialog(order: order, onOrderUpdated: () {}),
-    );
-  }
-
   void deleteOrder(String? orderId, BuildContext context) {
-    if (orderId == null) return;
+    Future<void> confirmDelete() async {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Confirm Deletion'),
+          content: const Text('Are you sure you want to delete this order?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
 
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Delete'),
-        content: const Text('Are you sure you want to delete this order?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              try {
-                await deleteSalesOrder(orderId);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Order deleted successfully!')),
-                );
-              } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error deleting order: $e')),
-                );
-              }
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  //credit card transactions information firestore
-  final CollectionReference creidtCard = FirebaseFirestore.instance.collection(
-    'credit_card',
-  );
-
-  Future<void> addTransaction({
-    required String decription,
-    required String date,
-    required String card,
-    required double amount,
-    required String type,
-    required String holder,
-  }) async {
-    try {
-      await creidtCard.add({
-        'description': decription,
-        'date': date,
-        'card': card,
-        'amount': amount,
-        'type': type,
-        'holder': holder,
-        'createdAt': FieldValue.serverTimestamp(),
-        'createdby': FirebaseAuth.instance.currentUser!.uid,
-      });
-    } catch (e) {
-      throw Exception('Failed to add transaction: $e');
+      if (confirmed == true && orderId != null) {
+        await deleteSalesOrder(orderId);
+      }
     }
-  }
 
-  //get transaction details
-  Stream<List<Map<String, dynamic>>> getTransactions() {
-    return creidtCard.orderBy('createdAt', descending: true).snapshots().map((
-      snapshot,
-    ) {
-      return snapshot.docs.map((doc) {
-        return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
-      }).toList();
-    });
-  }
-
-  Stream<List<Map<String, dynamic>>> getTransactionsByCard(String card) {
-    return creidtCard
-        .where('card', isEqualTo: card)
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map((snapshot) {
-          return snapshot.docs.map((doc) {
-            return {'id': doc.id, ...doc.data() as Map<String, dynamic>};
-          }).toList();
-        });
-  }
-
-  Future<void> deleteTransaction(String transactionId) async {
-    try {
-      await creidtCard.doc(transactionId).delete();
-    } catch (e) {
-      throw Exception('Failed to delete transaction: $e');
-    }
+    confirmDelete();
   }
 
   //get sales data by catogory 22/10/2025
@@ -281,6 +211,17 @@ class FirestoreService {
     return grouped;
   }
 
-  ///Status change save update firebase code
-  ///
+  Future<void> updateCourierStatus(String orderId, String status) async {
+    await salesCollection.doc(orderId).update({
+      "courierStatus": status,
+      "courierUpdate": FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> syncCourierStatus(String orderId, String waybill) async {
+    String? status = await CurfoxService().getCurrentStatus(waybill);
+    if (status != null) {
+      await FirestoreService().updateCourierStatus(orderId, status);
+    }
+  }
 }
