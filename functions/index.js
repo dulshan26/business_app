@@ -262,5 +262,75 @@ exports.dailyCourierSync = onSchedule(
       }
     }
     return null;
+
+
+    
   }
 );
+/* -----------------------------------------------------
+   2️⃣b SMS ON EVERY STATUS CHANGE (Updated for sales_new)
+----------------------------------------------------- */
+exports.sendSmsOnStatusChange = onDocumentUpdated(
+  "sales_new/{saleId}", // මෙතැන පාර වෙනස් කළා
+  async (event) => {
+    const newData = event.data.after.data();
+    const oldData = event.data.before.data();
+
+    // 1. status එක හෝ courierStatus එක වෙනස් වෙලා නම් විතරක් වැඩේ කරන්න
+    if (newData.courierStatus === oldData.courierStatus) {
+      return null;
+    }
+
+    // 2. phone number එක format කරගන්න
+    let phone = newData.customerPhone || "";
+    if (phone.startsWith("0")) {
+      phone = "94" + phone.substring(1);
+    } else if (phone.startsWith("+94")) {
+      phone = phone.replace("+", "");
+    }
+
+    const items = newData.items || [];
+    const itemNames = items.map(i => `${i.name} (x${i.quantity})`).join(", ");
+
+    const message =
+`Hi ${newData.customerName || "Customer"},
+
+Your order status has been updated to: ${newData.courierStatus || "Pending"}
+
+Items: ${itemNames}
+Tracking: ${newData.trackingNumber || "N/A"}
+
+- techtonic.lk`;
+
+    try {
+      // 3. SMS API එකට request එක යවන්න
+      await axios.post(
+        "https://app.text.lk/api/v3/sms/send",
+        {
+          recipient: phone,
+          sender_id: "Techtonic",
+          message: message,
+        },
+        {
+          headers: {
+            "Authorization": "Bearer 3588|9uKNaobXPQaxNOq8lZglzpOug9ESWDx6HAL96lowbfcf50f6",
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      // 4. status එක update වෙච්ච වෙලාව record කරන්න
+      await event.data.after.ref.update({
+        courierUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      console.log("Status change SMS sent for Sale ID (sales_new):", event.params.saleId);
+
+    } catch (error) {
+      console.error("Status SMS Error:", error.response?.data || error.message);
+    }
+
+    return null;
+  }
+);
+
