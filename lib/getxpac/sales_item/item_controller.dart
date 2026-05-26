@@ -129,4 +129,86 @@ class StockListController extends GetxController {
       );
     }
   }
+
+  // ➕ Create - අලුත් Item එකක් Inventory එකට එකතු කිරීම
+  Future<void> addItem({
+    required String name,
+    required double price,
+    required int initialStock,
+  }) async {
+    try {
+      isLoading.value = true;
+
+      // 1. ප්‍රධාන 'stock' collection එකේ අලුත් document reference එකක් හදනවා
+      DocumentReference productRef = _db.collection('stock').doc();
+
+      // 2. මුල්ම stock එක නිසා transactions sub-collection එකට දාන්න reference එකක් ගන්නවා
+      DocumentReference transRef = productRef.collection('transactions').doc();
+
+      WriteBatch batch = _db.batch();
+
+      // UI එකේ පාවිච්චි කරන field names ('item_name', 'balance', 'price') වලට ගැලපෙන්න දත්ත සකසනවා
+      batch.set(productRef, {
+        'item_name': name,
+        'price': price,
+        'balance': initialStock,
+        'created_at': FieldValue.serverTimestamp(),
+        'updated_at': FieldValue.serverTimestamp(),
+      });
+
+      // 3. 📝 මුල්ම Stock එක ඇතුළත් කරපු එක Transaction History එකට 'in' එකක් විදිහට දානවා
+      batch.set(transRef, {
+        'quantity': initialStock,
+        'balance_after': initialStock,
+        'type': 'in',
+        'note': 'Initial stock registration',
+        'timestamp': FieldValue.serverTimestamp(),
+        'item_name': name,
+      });
+
+      await batch.commit();
+
+      Get.snackbar(
+        "Success",
+        "$name added to inventory successfully!",
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } catch (e) {
+      Get.snackbar(
+        "Error",
+        "Failed to add item: $e",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // ❌ Delete - Item එකක් සම්පූර්ණයෙන්ම සිස්ටම් එකෙන් ඉවත් කිරීම
+  Future<void> removeItem(String productId) async {
+    try {
+      // ප්‍රධාන stock ලැයිස්තුවෙන් document එක සම්පූර්ණයෙන්ම මකා දමයි
+      await _db.collection('stock').doc(productId).delete();
+
+      Get.snackbar(
+        "Deleted",
+        "Item removed successfully from inventory!",
+        backgroundColor: Colors.orange,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } catch (e) {
+      Get.snackbar(
+        "Error",
+        "Failed to remove item: $e",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
+  }
 }

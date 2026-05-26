@@ -7,9 +7,146 @@ import 'package:own/getxpac/sales_item/one_item_page.dart';
 class StockListPage extends StatelessWidget {
   const StockListPage({super.key});
 
+  // 🟢 අලුත් Item එකක් ඇතුළත් කරන Popup Dialog එක
+  void _showAddItemDialog(
+    BuildContext context,
+    StockListController controller,
+  ) {
+    final nameController = TextEditingController();
+    final priceController = TextEditingController();
+    final stockController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.playlist_add, color: Colors.blue),
+            SizedBox(width: 10),
+            Text(
+              "Add New Product",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameController,
+                decoration: const InputDecoration(
+                  labelText: "Item Name",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) =>
+                    v == null || v.isEmpty ? "Enter item name" : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: priceController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Price (Rs.)",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) => double.tryParse(v ?? '') == null
+                    ? "Enter a valid price"
+                    : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: stockController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: "Initial Stock Qty",
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) => int.tryParse(v ?? '') == null
+                    ? "Enter a valid stock quantity"
+                    : null,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue.shade800,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () async {
+              if (formKey.currentState!.validate()) {
+                Get.back(); // Dialog එක වහනවා
+                await controller.addItem(
+                  name: nameController.text.trim(),
+                  price: double.parse(priceController.text.trim()),
+                  initialStock: int.parse(stockController.text.trim()),
+                );
+              }
+            },
+            child: const Text("Add Item"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🔴 Item එකක් Delete කරන්න කලින් අහන Confirmation Dialog එක
+  void _showRemoveItemConfirm(
+    BuildContext context,
+    StockListController controller,
+    String productId,
+    String itemName,
+  ) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.red),
+            SizedBox(width: 10),
+            Text("Delete Product?"),
+          ],
+        ),
+        content: Text(
+          "Are you sure you want to permanently remove '$itemName' from inventory? This action cannot be undone.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(),
+            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          ),
+          TextButton(
+            onPressed: () async {
+              Get.back(); // Dialog එක වහනවා
+              await controller.removeItem(productId);
+            },
+            child: const Text(
+              "Delete",
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Controller එක සාදා පිටුවට සම්බන්ධ කිරීම
     final StockListController controller = Get.put(StockListController());
 
     return Scaffold(
@@ -17,14 +154,20 @@ class StockListPage extends StatelessWidget {
         title: const Text("Stock Management"),
         backgroundColor: Colors.blue.shade800,
         foregroundColor: Colors.white,
+        // 💡 AppBar එකේ දකුණු පැත්තට අලුත් Item ඇතුළත් කරන බටන් එක දානවා
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add_box_rounded, size: 28),
+            onPressed: () => _showAddItemDialog(context, controller),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Obx(() {
-        // දත්ත Load වන විට පෙන්වන Loading Screen එක
         if (controller.isLoading.value) {
           return const Center(child: CircularProgressIndicator());
         }
 
-        // Database එකේ කිසිම බඩුවක් නැත්නම් පෙන්වන පිටුව
         if (controller.products.isEmpty) {
           return const Center(
             child: Text(
@@ -34,19 +177,15 @@ class StockListPage extends StatelessWidget {
           );
         }
 
-        // බඩු ලැයිස්තුව ලස්සනට බලාගන්නා කොටස
         return ListView.builder(
           itemCount: controller.products.length,
           padding: const EdgeInsets.all(12),
           itemBuilder: (context, index) {
             final product = controller.products[index];
 
-            // ආරක්ෂිතව Field අගයන් ලබාගැනීම (Null safety සඳහා)
             final String productId = product['id'] ?? '';
             final String itemName = product['item_name'] ?? 'Unknown Item';
             final int balance = product['balance'] ?? 0;
-
-            // Stock එක ඉවරද නැද්ද යන්න මත UI එක හැඩගැන්වීම
             final bool isOutOfStock = balance <= 0;
 
             return Card(
@@ -57,16 +196,12 @@ class StockListPage extends StatelessWidget {
                 side: BorderSide(color: Colors.grey.shade200, width: 0.5),
               ),
               child: ExpansionTile(
-                // ListTile එක වෙනුවට ExpansionTile එකක් දැම්මාම බටන්ස් ලස්සනට හැංගිලා තියෙයි
                 tilePadding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 8,
                 ),
-                shape:
-                    const Border(), // ExpansionTile එක Expand වුනහම උඩින් සහ පල්ලෙහායින් එන ඉරි ඉවත් කිරීමට
+                shape: const Border(),
                 collapsedShape: const Border(),
-
-                // වම්පස ඇති අයිකනය
                 leading: CircleAvatar(
                   backgroundColor: isOutOfStock
                       ? Colors.red.shade50
@@ -76,8 +211,6 @@ class StockListPage extends StatelessWidget {
                     color: isOutOfStock ? Colors.red : Colors.blue.shade700,
                   ),
                 ),
-
-                // මැද ප්‍රධාන මාතෘකාව (Item Name)
                 title: Text(
                   itemName,
                   style: const TextStyle(
@@ -85,14 +218,10 @@ class StockListPage extends StatelessWidget {
                     fontSize: 16,
                   ),
                 ),
-
-                // උප මාතෘකාව (Document ID එක ලාවට පෙන්වීමට - Debugging වලට ලේසියි)
                 subtitle: Text(
                   "ID: $productId",
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
                 ),
-
-                // දකුණු පසින් පෙනෙන Stock Count (Balance) එක
                 trailing: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -115,69 +244,91 @@ class StockListPage extends StatelessWidget {
                     ),
                   ),
                 ),
-
-                // 🔽 Card එක උඩ Click කරාම පල්ලෙහායින් මතුවන Buttons ටික
                 children: [
                   Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,
                       vertical: 8,
                     ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                    child: Column(
                       children: [
-                        // 📜 History Button
-                        TextButton.icon(
-                          icon: const Icon(Icons.history, size: 18),
-                          label: const Text("History"),
-                          onPressed: () => Get.to(
-                            () => StockHistoryPage(
-                              productId: productId,
-                              itemName: itemName,
-                            ),
-                          ),
-                        ),
-                        const Spacer(),
-
-                        // 🟢 Stock In Button
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.green.shade600,
-                            foregroundColor: Colors.white,
-                          ),
-                          icon: const Icon(Icons.add, size: 18),
-                          label: const Text("Stock In"),
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (context) => StockActionDialog(
-                                product: product,
-                                type: 'in',
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            // 📜 History Button
+                            TextButton.icon(
+                              icon: const Icon(Icons.history, size: 18),
+                              label: const Text("History"),
+                              onPressed: () => Get.to(
+                                () => StockHistoryPage(
+                                  productId: productId,
+                                  itemName: itemName,
+                                ),
                               ),
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 8),
+                            ),
 
-                        // 🔴 Stock Out Button
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.red.shade600,
-                            foregroundColor: Colors.white,
-                          ),
-                          icon: const Icon(Icons.remove, size: 18),
-                          label: const Text("Stock Out"),
-                          onPressed: isOutOfStock
-                              ? null // Stock 0 නම් බටන් එක disable වේ
-                              : () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (context) => StockActionDialog(
-                                      product: product,
-                                      type: 'out',
-                                    ),
-                                  );
-                                },
+                            // 🗑️ Delete/Remove Product Button (අලුතින් එකතු කල කොටස)
+                            TextButton.icon(
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                size: 18,
+                                color: Colors.red,
+                              ),
+                              label: const Text(
+                                "Remove Item",
+                                style: TextStyle(color: Colors.red),
+                              ),
+                              onPressed: () => _showRemoveItemConfirm(
+                                context,
+                                controller,
+                                productId,
+                                itemName,
+                              ),
+                            ),
+
+                            const Spacer(),
+
+                            // 🟢 Stock In Button
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.green.shade600,
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.add, size: 18),
+                              label: const Text("Stock In"),
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => StockActionDialog(
+                                    product: product,
+                                    type: 'in',
+                                  ),
+                                );
+                              },
+                            ),
+                            const SizedBox(width: 8),
+
+                            // 🔴 Stock Out Button
+                            ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red.shade600,
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.remove, size: 18),
+                              label: const Text("Stock Out"),
+                              onPressed: isOutOfStock
+                                  ? null
+                                  : () {
+                                      showDialog(
+                                        context: context,
+                                        builder: (context) => StockActionDialog(
+                                          product: product,
+                                          type: 'out',
+                                        ),
+                                      );
+                                    },
+                            ),
+                          ],
                         ),
                       ],
                     ),

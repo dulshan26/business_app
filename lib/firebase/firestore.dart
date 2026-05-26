@@ -193,32 +193,72 @@ class FirestoreService {
 
   Future<void> syncAllCourierStatuses() async {
     try {
-      // 1. Sent status එකේ තියෙන ඔක්කොම orders ගන්න
+      // 1. Sent status එකේ තියෙන ඔක්කොම orders එකවර කියවා ගැනීම
       final querySnapshot = await salesCollection
           .where('status', isEqualTo: 'Sent')
           .get();
 
-      for (var doc in querySnapshot.docs) {
+      if (querySnapshot.docs.isEmpty) {
+        Get.snackbar(
+          "Info",
+          "No pending courier orders to sync.",
+          snackPosition: SnackPosition.BOTTOM,
+        );
+        return;
+      }
+
+      // 💡 Loading එකක් පෙන්වන්න (Optional UI Feedback)
+      Get.snackbar(
+        "Syncing...",
+        "Updating all courier statuses in background...",
+        snackPosition: SnackPosition.BOTTOM,
+        showProgressIndicator: true,
+      );
+
+      // 2. හැම Document එකකටම අදාළ Sync Task එක Future ලැයිස්තුවක් විදිහට සකසා ගැනීම
+      List<Future<void>> syncTasks = querySnapshot.docs.map((doc) async {
         final data = doc.data() as Map<String, dynamic>;
         String? trackingNumber = data['trackingNumber'];
 
         if (trackingNumber != null && trackingNumber.isNotEmpty) {
-          // 2. Curfox API එකෙන් update එක ගන්න
-          String? status = await CurfoxService().getCurrentStatus(
-            trackingNumber,
-          );
+          try {
+            // Curfox API එකෙන් එකවර දත්ත ලබා ගැනීම
+            String? status = await CurfoxService().getCurrentStatus(
+              trackingNumber,
+            );
 
-          if (status != null) {
-            // 3. Firestore update කරන්න
-            await salesCollection.doc(doc.id).update({
-              "courierStatus": status,
-              "courierUpdated": FieldValue.serverTimestamp(),
-            });
+            if (status != null) {
+              // Firestore Update එක සිදු කිරීම
+              await salesCollection.doc(doc.id).update({
+                "courierStatus": status,
+                "courierUpdated": FieldValue.serverTimestamp(),
+              });
+            }
+          } catch (e) {
+            print("Error syncing order ${doc.id}: $e");
+            // එක ඕඩර් එකක් ෆේල් වුනත් අනිත් ඒවාට බාධාවක් වෙන්නේ නැහැ
           }
         }
-      }
+      }).toList();
+
+      // 3. 🔥 🔥 වැදගත්ම කොටස: සියලුම API Calls සහ Updates එකවර Parallel රන් කිරීම
+      await Future.wait(syncTasks);
+
+      Get.snackbar(
+        "Success",
+        "All courier statuses updated successfully!",
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
     } catch (e) {
-      Get.snackbar("Error", "Error syncing all: $e");
+      Get.snackbar(
+        "Error",
+        "Bulk sync failed: $e",
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
     }
   }
 
