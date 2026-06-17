@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get_core/src/get_main.dart';
 import 'package:get/get_navigation/src/extension_navigation.dart';
@@ -16,22 +15,6 @@ class FirestoreService {
   final CollectionReference salesCollection = FirebaseFirestore.instance
       .collection('sales_new');
 
-  // Create - Add new sales order
-  Future<String> createSalesOrder(Map<String, dynamic> salesData) async {
-    try {
-      // Add timestamp
-      salesData['createdAt'] = FieldValue.serverTimestamp();
-      salesData['updatedAt'] = FieldValue.serverTimestamp();
-      salesData['createdby'] = FirebaseAuth.instance.currentUser!.uid;
-
-      final docRef = await salesCollection.add(salesData);
-      return docRef.id;
-    } catch (e) {
-      throw Exception('Failed to create sales order: $e');
-    }
-  }
-
-  // Read - Get all sales orders
   // FirestoreService.dart එකේ මේ විදිහට හදන්න
   Stream<List<SalesModel>> getAllSalesOrders() {
     return salesCollection
@@ -46,15 +29,47 @@ class FirestoreService {
         );
   }
 
-  // Update - Update sales order
+  // 🔄 Update - Update sales order and adjust summary if totalAmount changed
   Future<void> updateSalesOrder(
     String orderId,
     Map<String, dynamic> updates,
   ) async {
     try {
       updates['updatedAt'] = FieldValue.serverTimestamp();
-      await salesCollection.doc(orderId).update(updates);
+
+      DocumentReference saleRef = salesCollection.doc(orderId);
+      DocumentReference globalSalesSummaryRef = _db
+          .collection('sales_summary')
+          .doc('overall');
+
+      WriteBatch batch = _db.batch();
+
+      // 🌟 බිලේ මුදල වෙනස් වෙලා තියෙනවා නම් විතරක් summary එක වෙනස් කරනවා
+      if (updates.containsKey('totalAmount')) {
+        // 1. පරණ දත්ත කියවා ගැනීම
+        DocumentSnapshot oldDoc = await saleRef.get();
+        if (oldDoc.exists) {
+          var oldData = oldDoc.data() as Map<String, dynamic>;
+          double oldAmount =
+              double.tryParse(oldData['totalAmount'].toString()) ?? 0.0;
+          double newAmount =
+              double.tryParse(updates['totalAmount'].toString()) ?? 0.0;
+
+          // 🧮 වෙනස සෙවීම (උදා: 2000 - 1500 = +500 එකතු වේ | 1200 - 1500 = -300 අඩු වේ)
+          double amountDifference = newAmount - oldAmount;
+
+          batch.set(globalSalesSummaryRef, {
+            'total_revenue': FieldValue.increment(amountDifference),
+            'last_updated': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
+
+      // 2. ඕඩර් එකේ Updates ටික Batch එකට දමා Commit කිරීම
+      batch.update(saleRef, updates);
+      await batch.commit();
     } catch (e) {
+      Get.snackbar("UPDATE ERROR", "Failed to update sales order: $e");
       throw Exception('Failed to update sales order: $e');
     }
   }
@@ -235,7 +250,11 @@ class FirestoreService {
               });
             }
           } catch (e) {
-            print("Error syncing order ${doc.id}: $e");
+            Get.snackbar(
+              "Error",
+              "Error syncing order ${doc.id}: $e",
+              snackPosition: SnackPosition.BOTTOM,
+            );
             // එක ඕඩර් එකක් ෆේල් වුනත් අනිත් ඒවාට බාධාවක් වෙන්නේ නැහැ
           }
         }
@@ -263,29 +282,50 @@ class FirestoreService {
   }
 
   // FirestoreService.dart
+
   Future<void> createCourierOrder(SalesModel order) async {
-    // Check if tracking number is already available
-    if (order.trackingNumber != null) {
-      Get.snackbar(
-        "Already Created",
-        "Courier order already exists. Tracking Number: ${order.trackingNumber}",
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.amber[800],
-        colorText: Colors.white,
-        icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),
-        duration: const Duration(seconds: 3),
-        margin: const EdgeInsets.all(12),
-      );
-      return; // Stop execution right here
-    }
     try {
+      // 1. Fetch live document from Firebase to verify state and ensure tracking doesn't exist
+      final docSnapshot = await FirebaseFirestore.instance
+          .collection("sales_new")
+          .doc(order.id)
+          .get();
+
+      if (docSnapshot.exists) {
+        final dbData = docSnapshot.data();
+        if (dbData != null &&
+            dbData['trackingNumber'] != null &&
+            dbData['trackingNumber'].toString().isNotEmpty) {
+          Get.snackbar(
+            "Already Created",
+            "Courier order already exists. Tracking Number: ${dbData['trackingNumber']}",
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.amber[800],
+            colorText: Colors.white,
+            icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),
+            duration: const Duration(seconds: 4),
+            margin: const EdgeInsets.all(12),
+          );
+          return;
+        }
+      }
+
+      // 🌟 FIX: Safe Parsing for Data Types required by Curfox API Docs
+      // Convert double amount (e.g. 1550.50) safely to an integer (e.g. 1551)
+      final int safeCodAmount = (order.totalAmount).round();
+
+      // Ensure string fields are clean and fallback smoothly
+      final String targetCity = order.destinationCity ?? "Colombo 02";
+      final String targetState = order.destinationState ?? "Colombo";
+
+      // 2. Build and execute API Request payload
       final response = await http.post(
         Uri.parse("https://v1.api.curfox.com/api/public/merchant/order/single"),
         headers: {
           "Accept": "application/json",
           "Content-Type": "application/json",
           "Authorization":
-              "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiYjFiNDk3OWM1YjEyNjEwNjUxMGFhZDMyMDQ0MzBiMWE0NWYyZTFiMzAzOTIzMTQ3ZjdjM2YyNWEzMGZkMDU0MzdhZWZjNmJiOTVkZWI2OTEiLCJpYXQiOjE3NzI3MzU4MzMuMjM2NDYzLCJuYmYiOjE3NzI3MzU4MzMuMjM2NDY1LCJleHAiOjQ5Mjg0MDk0MzMuMjIyMzE0LCJzdWIiOiI0Njc0Iiwic2NvcGVzIjpbXX0.jVbxQXE8AOGvYuWPQmDGA7VyYvPyw73AnyiCpGgdd0XD7GQCtMj5HLn0YNADASZwWOxRxK9J92OB0CW3KD_ZUtku7VYIbb8SYKOYDzBNrdt8EfiM7cKMf8vWaD22jnwi33_TEEdWzQxuI5HMqkq0AiKOm93lKgt94SGmeSl_xlWORKBENB4qvawCiQhRgluMnyxInC7mmbPGgHY1Mx_4IZ5nEXto3C6wrlLdfPJNTlWnJPALeHKiNPRLD6kHS0-Mo_wotlddLRuKSfj19kxkazfBm-cuH8cJj76pFCuVKbQCWzC-ok7gK2-ZwO3nvEq9VnEQrG62bxkgFe8orEZIfm3Saw99sbUr7EwoHOvMircz4FMHm-ls5c8VqUpy81xn8TyYeZ6mTyZk0oJ0mVso_JbN5wU6hmKmxX-amhA2UTQ1f20Ic61JVskkmZjkmDmdBQBU2yribDqzD06_SH3I7n8KueHYNXOElHo-D1Gp2wU05zTdROMurfegGzTvCeR8v6lAaDygLXyG2quK6RF0LN_kwXat6JqRCAuyedHfzts0TEe1Yps8LY1LfyW4PtcFaZcUoLPjQwsDcM6yE0237I1qDMNhobp_qB_3V1xkenN7sPkLn47iRodN7-PoFMzG3xzffZvm4tVJBRcKuvxgTSCDf2GkJZSbz20RRv7kDZo", // මෙතන Token එක දාන්න
+              "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiYjFiNDk3OWM1YjEyNjEwNjUxMGFhZDMyMDQ0MzBiMWE0NWYyZTFiMzAzOTIzMTQ3ZjdjM2YyNWEzMGZkMDU0MzdhZWZjNmJiOTVkZWI2OTEiLCJpYXQiOjE3NzI3MzU4MzMuMjM2NDYzLCJuYmYiOjE3NzI3MzU4MzMuMjM2NDY1LCJleHAiOjQ5Mjg0MDk0MzMuMjIyMzE0LCJzdWIiOiI0Njc0Iiwic2NvcGVzIjpbXX0.jVbxQXE8AOGvYuWPQmDGA7VyYvPyw73AnyiCpGgdd0XD7GQCtMj5HLn0YNADASZwWOxRxK9J92OB0CW3KD_ZUtku7VYIbb8SYKOYDzBNrdt8EfiM7cKMf8vWaD22jnwi33_TEEdWzQxuI5HMqkq0AiKOm93lKgt94SGmeSl_xlWORKBENB4qvawCiQhRgluMnyxInC7mmbPGgHY1Mx_4IZ5nEXto3C6wrlLdfPJNTlWnJPALeHKiNPRLD6kHS0-Mo_wotlddLRuKSfj19kxkazfBm-cuH8cJj76pFCuVKbQCWzC-ok7gK2-ZwO3nvEq9VnEQrG62bxkgFe8orEZIfm3Saw99sbUr7EwoHOvMircz4FMHm-ls5c8VqUpy81xn8TyYeZ6mTyZk0oJ0mVso_JbN5wU6hmKmxX-amhA2UTQ1f20Ic61JVskkmZjkmDmdBQBU2yribDqzD06_SH3I7n8KueHYNXOElHo-D1Gp2wU05zTdROMurfegGzTvCeR8v6lAaDygLXyG2quK6RF0LN_kwXat6JqRCAuyedHfzts0TEe1Yps8LY1LfyW4PtcFaZcUoLPjQwsDcM6yE0237I1qDMNhobp_qB_3V1xkenN7sPkLn47iRodN7-PoFMzG3xzffZvm4tVJBRcKuvxgTSCDf2GkJZSbz20RRv7kDZo",
           "X-tenant": "royalexpress",
         },
         body: jsonEncode({
@@ -296,50 +336,149 @@ class FirestoreService {
           },
           "order_data": [
             {
-              "order_no": order.id,
-              "customer_name": order.customerName,
-              "customer_address": order.customerAddress,
+              "order_no": order.id.toString(),
+              "customer_name": order.customerName ?? "Customer",
+              "customer_address":
+                  order.customerAddress ?? "No Address Provided",
               "customer_phone": order.customerPhone,
               "customer_secondary_phone": order.custonerPhone2 ?? "",
-              "destination_city_name": "Colombo 02",
-              "destination_state_name": "Colombo",
-              "cod": order.totalAmount,
-              "weight": 1.0,
-              "description": "Fragile item",
-              "remark": "Handle with care",
+              "destination_city_name":
+                  targetCity, // Curfox API එකට City Name එක යවන්න ඕනේ, ID එක නෙමෙයි
+              "destination_state_name": targetState,
+              "cod":
+                  safeCodAmount, // 🌟 FIXED: Passes strictly as Integer data type
+              "weight": 1.0, // Passes as Double data type
+              "description": "please correct distination city before send",
+              "remark": "please correct distination city before send",
             },
           ],
         }),
       );
 
+      // 3. Process API Response
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final String waybill =
-            data['data'][0]; // API එකෙන් එන Tracking Number එක
+        final Map<String, dynamic> responseData = jsonDecode(response.body);
+        final List<dynamic> responseWaybillList = responseData['data'];
+        final String generatedWaybill = responseWaybillList[0].toString();
 
-        // Firestore එකේ අදාල Order එකට Tracking Number එක සහ status එක save කරන්න
+        // 4. Update the source tracking info in Firestore
         await FirebaseFirestore.instance
             .collection("sales_new")
             .doc(order.id)
             .update({
-              "trackingNumber": waybill,
+              "trackingNumber": generatedWaybill,
               "courierStatus": "Order Created",
               "courierPartner": "Royal Courier",
               "courierCost": 425.0,
-              'status': 'Sent', // Sales order status එක update කරන්න
+              "status": "Sent",
               "courierUpdated": FieldValue.serverTimestamp(),
             });
+
         Get.snackbar(
           "Success",
-          "Courier status updated!",
+          "Courier order successfully created! Waybill: $generatedWaybill",
           snackPosition: SnackPosition.BOTTOM,
-          duration: const Duration(seconds: 30),
+          backgroundColor: Colors.green[800],
+          colorText: Colors.white,
+          duration: const Duration(seconds: 5),
         );
       } else {
-        throw Exception("Failed to create order: ${response.body}");
+        // 🌟 IMPROVED ERROR PARSING: Reads detailed validation rejections straight from Curfox
+        final Map<String, dynamic> errorBody = jsonDecode(response.body);
+        String errorMessage = errorBody['message'] ?? "Validation Error";
+
+        if (errorBody.containsKey('errors')) {
+          final Map<String, dynamic> detailedErrors = errorBody['errors'];
+          // Extracts the first exact error array description if available
+          if (detailedErrors.values.isNotEmpty &&
+              detailedErrors.values.first is List) {
+            errorMessage = detailedErrors.values.first[0].toString();
+          }
+        }
+
+        throw Exception(errorMessage);
       }
     } catch (e) {
-      throw Exception("Error: $e");
+      Get.snackbar(
+        "Submission Failed",
+        e.toString().replaceAll("Exception: ", ""),
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red[900],
+        colorText: Colors.white,
+        duration: const Duration(seconds: 8),
+      );
+    }
+  }
+
+  //city loaded
+  Future<List<Map<String, dynamic>>> loadCurfoxCities({
+    required String token,
+    required String tenant,
+  }) async {
+    try {
+      final String url =
+          "https://v1.api.curfox.com/api/public/merchant/city?noPagination=1";
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "Authorization":
+              "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiYjFiNDk3OWM1YjEyNjEwNjUxMGFhZDMyMDQ0MzBiMWE0NWYyZTFiMzAzOTIzMTQ3ZjdjM2YyNWEzMGZkMDU0MzdhZWZjNmJiOTVkZWI2OTEiLCJpYXQiOjE3NzI3MzU4MzMuMjM2NDYzLCJuYmYiOjE3NzI3MzU4MzMuMjM2NDY1LCJleHAiOjQ5Mjg0MDk0MzMuMjIyMzE0LCJzdWIiOiI0Njc0Iiwic2NvcGVzIjpbXX0.jVbxQXE8AOGvYuWPQmDGA7VyYvPyw73AnyiCpGgdd0XD7GQCtMj5HLn0YNADASZwWOxRxK9J92OB0CW3KD_ZUtku7VYIbb8SYKOYDzBNrdt8EfiM7cKMf8vWaD22jnwi33_TEEdWzQxuI5HMqkq0AiKOm93lKgt94SGmeSl_xlWORKBENB4qvawCiQhRgluMnyxInC7mmbPGgHY1Mx_4IZ5nEXto3C6wrlLdfPJNTlWnJPALeHKiNPRLD6kHS0-Mo_wotlddLRuKSfj19kxkazfBm-cuH8cJj76pFCuVKbQCWzC-ok7gK2-ZwO3nvEq9VnEQrG62bxkgFe8orEZIfm3Saw99sbUr7EwoHOvMircz4FMHm-ls5c8VqUpy81xn8TyYeZ6mTyZk0oJ0mVso_JbN5wU6hmKmxX-amhA2UTQ1f20Ic61JVskkmZjkmDmdBQBU2yribDqzD06_SH3I7n8KueHYNXOElHo-D1Gp2wU05zTdROMurfegGzTvCeR8v6lAaDygLXyG2quK6RF0LN_kwXat6JqRCAuyedHfzts0TEe1Yps8LY1LfyW4PtcFaZcUoLPjQwsDcM6yE0237I1qDMNhobp_qB_3V1xkenN7sPkLn47iRodN7-PoFMzG3xzffZvm4tVJBRcKuvxgTSCDf2GkJZSbz20RRv7kDZo",
+          "X-tenant": "royalexpress",
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+
+        if (responseData.containsKey('data') && responseData['data'] is List) {
+          List<dynamic> citiesList = responseData['data'];
+
+          // Map and extract both City details and its corresponding State details
+          return List<Map<String, dynamic>>.from(
+            citiesList.map((city) {
+              // Extract state accurately even if payload formats change slightly
+              String extractedState = "Colombo"; // Default fallback state
+              if (city["state_name"] != null) {
+                extractedState = city["state_name"].toString();
+              } else if (city["state"] != null &&
+                  city["state"]["name"] != null) {
+                extractedState = city["state"]["name"].toString();
+              }
+
+              return {
+                "id": city["id"],
+                "name": city["name"].toString(),
+                "state_name": extractedState, // Parsed State auto-grouped here
+              };
+            }),
+          );
+        } else {
+          throw Exception("Invalid data structure received from Curfox API");
+        }
+      } else if (response.statusCode == 401) {
+        Get.snackbar(
+          "Authentication Error",
+          "Unauthorized access to Curfox API. Please check your token.",
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        return [];
+      } else {
+        throw Exception(
+          "Failed to load cities. Status Code: ${response.statusCode}",
+        );
+      }
+    } catch (e) {
+      Get.snackbar(
+        "Error",
+        "Failed to load cities: $e",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return [];
     }
   }
 
@@ -348,5 +487,75 @@ class FirestoreService {
         .collection('sales_new') // modify this to match your collection name
         .doc(orderId)
         .update({'status': newStatus});
+  }
+
+  Future<List<Map<String, dynamic>>> fetchCurfoxCities({
+    required String token,
+    required String tenant,
+  }) async {
+    try {
+      // API endpoint with filters bypassed to load the complete list
+      final String url =
+          "https://v1.api.curfox.com/api/public/merchant/city?noPaginationNoFilter=1";
+
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "Authorization":
+              "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiYjFiNDk3OWM1YjEyNjEwNjUxMGFhZDMyMDQ0MzBiMWE0NWYyZTFiMzAzOTIzMTQ3ZjdjM2YyNWEzMGZkMDU0MzdhZWZjNmJiOTVkZWI2OTEiLCJpYXQiOjE3NzI3MzU4MzMuMjM2NDYzLCJuYmYiOjE3NzI3MzU4MzMuMjM2NDY1LCJleHAiOjQ5Mjg0MDk0MzMuMjIyMzE0LCJzdWIiOiI0Njc0Iiwic2NvcGVzIjpbXX0.jVbxQXE8AOGvYuWPQmDGA7VyYvPyw73AnyiCpGgdd0XD7GQCtMj5HLn0YNADASZwWOxRxK9J92OB0CW3KD_ZUtku7VYIbb8SYKOYDzBNrdt8EfiM7cKMf8vWaD22jnwi33_TEEdWzQxuI5HMqkq0AiKOm93lKgt94SGmeSl_xlWORKBENB4qvawCiQhRgluMnyxInC7mmbPGgHY1Mx_4IZ5nEXto3C6wrlLdfPJNTlWnJPALeHKiNPRLD6kHS0-Mo_wotlddLRuKSfj19kxkazfBm-cuH8cJj76pFCuVKbQCWzC-ok7gK2-ZwO3nvEq9VnEQrG62bxkgFe8orEZIfm3Saw99sbUr7EwoHOvMircz4FMHm-ls5c8VqUpy81xn8TyYeZ6mTyZk0oJ0mVso_JbN5wU6hmKmxX-amhA2UTQ1f20Ic61JVskkmZjkmDmdBQBU2yribDqzD06_SH3I7n8KueHYNXOElHo-D1Gp2wU05zTdROMurfegGzTvCeR8v6lAaDygLXyG2quK6RF0LN_kwXat6JqRCAuyedHfzts0TEe1Yps8LY1LfyW4PtcFaZcUoLPjQwsDcM6yE0237I1qDMNhobp_qB_3V1xkenN7sPkLn47iRodN7-PoFMzG3xzffZvm4tVJBRcKuvxgTSCDf2GkJZSbz20RRv7kDZo",
+          "X-tenant": "royalexpress",
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> responseData = json.decode(response.body);
+
+        if (responseData.containsKey('data') && responseData['data'] is List) {
+          List<dynamic> citiesList = responseData['data'];
+
+          // Map and extract both City details and its corresponding State details
+          return List<Map<String, dynamic>>.from(
+            citiesList.map((city) {
+              // Extract state accurately even if payload formats change slightly
+              String extractedState = "Colombo"; // Default fallback state
+              if (city["state_name"] != null) {
+                extractedState = city["state_name"].toString();
+              } else if (city["state"] != null &&
+                  city["state"]["name"] != null) {
+                extractedState = city["state"]["name"].toString();
+              }
+
+              return {
+                "id": city["id"],
+                "name": city["name"].toString(),
+                "state_name": extractedState, // Parsed State auto-grouped here
+              };
+            }),
+          );
+        } else {
+          throw Exception("Invalid data structure received from Curfox API");
+        }
+      } else if (response.statusCode == 401) {
+        Get.snackbar(
+          "Authentication Error",
+          "Curfox API token is invalid or expired.",
+          backgroundColor: Colors.red,
+          colorText: Colors.white,
+        );
+        throw Exception("Unauthenticated Curfox API Request");
+      } else {
+        throw Exception("Failed to load cities: ${response.statusCode}");
+      }
+    } catch (e) {
+      Get.snackbar(
+        "Error",
+        "❌ Curfox API Error: $e",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      rethrow;
+    }
   }
 }

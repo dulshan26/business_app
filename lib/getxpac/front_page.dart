@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:own/ecommerce/home.dart';
 import 'package:own/firebase/firestore.dart';
 import 'package:own/getxpac/customer/customer_form.dart';
 import 'package:own/getxpac/customer/customer_model.dart';
@@ -259,8 +260,8 @@ class FrontPage extends StatelessWidget {
           title: 'Customers Directory',
           icon: Icons.contact_page_outlined,
           color: Colors.purple,
-          onTap: () async {
-            await FirestoreService().syncAllCourierStatuses();
+          onTap: () {
+            FirestoreService().syncAllCourierStatuses();
             Get.to(() => const OrderPage());
           },
         ),
@@ -276,7 +277,9 @@ class FrontPage extends StatelessWidget {
           title: 'Analytics Reports',
           icon: Icons.bar_chart_rounded,
           color: Colors.redAccent,
-          onTap: () {},
+          onTap: () {
+            Get.to(() => const HomePage()); // Placeholder for analytics page
+          },
         ),
       ],
     );

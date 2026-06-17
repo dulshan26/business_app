@@ -18,6 +18,8 @@ class SalesModel {
   final String status;
   final String? note;
   final bool smsSent;
+  final String? destinationCity;
+  final String? destinationState;
   final String? courierStatus;
   final String? courierPatner;
   final String? trackingNumber;
@@ -29,6 +31,8 @@ class SalesModel {
     required this.customerPhone,
     this.customerName, // ➕
     this.customerAddress, // ➕
+    this.destinationCity, // ➕
+    this.destinationState, // ➕
     required this.items,
     required this.totalAmount,
     required this.createdAt,
@@ -48,6 +52,8 @@ class SalesModel {
       'customerPhone': customerPhone,
       'customerName': customerName, // ➕ Firebase එකට යන්න
       'customerAddress': customerAddress, // ➕ Firebase එකට යන්න
+      'destinationCity': destinationCity, // ➕ Firebase එකට යන්න
+      'destinationState': destinationState, // ➕ Firebase එකට යන්න
       'items': items,
       'totalAmount': totalAmount,
       'createdAt': createdAt,
@@ -70,6 +76,7 @@ class SalesModel {
       customerPhone: data['customerPhone'] ?? '',
       customerName: data['customerName'] ?? 'No Name', // ➕
       customerAddress: data['customerAddress'] ?? 'No Address', // ➕
+      destinationCity: data['destinationCity'] ?? 'No City', // ➕
       items: List<Map<String, dynamic>>.from(data['items'] ?? []),
       totalAmount: (data['totalAmount'] ?? 0).toDouble(),
       createdAt: (data['createdAt'] as Timestamp).toDate(),
@@ -82,6 +89,7 @@ class SalesModel {
       custonerPhone2: data['custonerPhone2'],
       trackingNumber: data['trackingNumber'],
       courierUpdatedAt: data['courierUpdatedAt'],
+      destinationState: data['destinationState'], // ➕ Firebase එකට යන්න
     );
   }
 }
@@ -90,14 +98,9 @@ class SalesController extends GetxController {
   final FirebaseFirestore _db = FirebaseFirestore.instance;
 
   var isLoading = false.obs;
-
-  //stock eke. tiyana badu tika tiya ganne eka stock collection ekata query ekak dila. eka fetch karala allStockItems list ekata danna one. e list eka filteredStockItems list ekata copy karala. search bar ekak thiyenawanam, search bar eke text change wenakota filteredStockItems list eka update wenna one. search bar eke text eka item_name field ekata match wenna one. match una items tika filteredStockItems list ekata danna one. search bar eke text eka clear karala nam, filteredStockItems list eka allStockItems list ekata copy karala danna one.
-  var allStockItems = <Map<String, dynamic>>[].obs; // All items from stock
-  var filteredStockItems =
-      <Map<String, dynamic>>[].obs; // Filtered items based on search
-
-  //local card eka,, toora gatta badu tika
-  var selectedItems = <Map<String, dynamic>>[].obs; // Local cart
+  var allStockItems = <Map<String, dynamic>>[].obs;
+  var filteredStockItems = <Map<String, dynamic>>[].obs;
+  var selectedItems = <Map<String, dynamic>>[].obs;
   var totalAmount = 0.0.obs;
 
   final amountController = TextEditingController();
@@ -106,20 +109,21 @@ class SalesController extends GetxController {
   void onInit() {
     super.onInit();
     fetchStockItems();
-    // Any initialization if needed
-  } //page eka open weddima badu tika load kara ganne oni
+  }
 
+  // 📦 1. Stock Items හරියටම කියවා ගැනීම
   Future<void> fetchStockItems() async {
     try {
       isLoading.value = true;
-      final snap = await _db.collection('stock').orderBy('item_id').get();
+      // 🌟 FIX: 'item_id' වෙනුවට 'item_name' එකෙන් order කළා. එතකොට හැම item එකක්ම අනිවාර්යයෙන්ම වැටෙනවා.
+      final snap = await _db.collection('stock').orderBy('item_name').get();
 
       var items = snap.docs.map((doc) {
         final d = doc.data();
         return {
-          'docId': doc.id,
-          'item_id': d['item_id'] ?? '',
-          'item_name': d['item_name'] ?? '',
+          'id': doc
+              .id, // 🌟 FIX: 'docId' වෙනුවට කෙලින්ම 'id' කියලා ගත්තා ලේසි වෙන්න
+          'item_name': d['item_name'] ?? 'No Name',
           'description': d['description'] ?? '',
           'balance': d['balance'] ?? 0,
           'price': (d['price'] ?? 0).toDouble(),
@@ -127,7 +131,7 @@ class SalesController extends GetxController {
       }).toList();
 
       allStockItems.assignAll(items);
-      filteredStockItems.assignAll(items); //start karaddi serama penwa
+      filteredStockItems.assignAll(items);
     } catch (e) {
       Get.snackbar("Error", "Failed to fetch stock items: $e");
     } finally {
@@ -150,16 +154,17 @@ class SalesController extends GetxController {
     }
   }
 
-  //cart ekata badu ekathu kara ganna widiya
+  // 🛒 2. Cart එකට Item එකතු කිරීම
   void addItemToCart(Map<String, dynamic> stock) {
     int index = selectedItems.indexWhere(
-      (item) => item['name'] == stock['item_name'],
-    );
+      (item) => item['id'] == stock['id'],
+    ); // 🌟 FIX: ID එකෙන් check කරන්නේ
+
     if (index >= 0) {
       increaseQty(index);
     } else {
       selectedItems.add({
-        'id': stock['docId'], // To track which stock item is added
+        'id': stock['id'], // 🌟 Document ID එකම යනවා
         'name': stock['item_name'],
         'quantity': 1,
         'price': stock['price'],
@@ -170,13 +175,7 @@ class SalesController extends GetxController {
 
   void increaseQty(int index) {
     selectedItems[index]['quantity'] += 1;
-    calculateTotal();
-  }
-
-  // Add item to local list
-  void addItem(String name, int qty, double price) {
-    selectedItems.add({'name': name, 'quantity': qty, 'price': price});
-    selectedItems.refresh(); // Notify listeners of the change
+    selectedItems.refresh(); // GetX වලට ලිස්ට් එක update වුන බව කියන්න
     calculateTotal();
   }
 
@@ -186,7 +185,7 @@ class SalesController extends GetxController {
     } else {
       selectedItems.removeAt(index);
     }
-    selectedItems.refresh(); // Notify listeners of the change
+    selectedItems.refresh();
     calculateTotal();
   }
 
@@ -196,11 +195,11 @@ class SalesController extends GetxController {
       // ignore: avoid_types_as_parameter_names
       (sum, item) => sum + (item['price'] * item['quantity']),
     );
-
     amountController.text = totalAmount.value.toStringAsFixed(2);
   }
 
-  // Step 3: Save Sales Record
+  // 💾 3. සේල් එක සේව් කිරීම සහ Stock එක අඩු කිරීම
+  //this is where sales orders happend
   Future<void> saveSalesTransaction({
     required String phone,
     String? name,
@@ -216,11 +215,7 @@ class SalesController extends GetxController {
 
     try {
       isLoading.value = true;
-
-      // 1. 🔥 Firestore WriteBatch එකක් ආරම්භ කිරීම
       WriteBatch batch = _db.batch();
-
-      // 2. Sale Document එකට අලුත් ID එකක් කලින්ම සාදා ගැනීම
       DocumentReference saleRef = _db.collection('sales_new').doc();
 
       SalesModel newSale = SalesModel(
@@ -239,60 +234,68 @@ class SalesController extends GetxController {
         custonerPhone2: phone2 ?? '',
         trackingNumber: null,
         courierUpdatedAt: null,
+        destinationCity: null,
       );
 
-      // 3. Sale එක සේව් කරන්න Batch එකට ඇතුලත් කිරීම
       batch.set(saleRef, newSale.toMap());
 
-      // 4. 🔄 Selected Items ලැයිස්තුව හරහා Loop එකක් යවමින් හැම Item එකකම Stock අඩු කිරීම
-      for (var item in selectedItems) {
-        // සාමාන්‍යයෙන් item map එකේ item_id හෝ id එක තියෙන්න ඕනේ. (Firestore doc ID එක string එකක් නම් ඒක ගන්න)
-        // ඔයාගේ stock collection එකේ document ID එක මෙතනට දාන්න (e.g., product['id'] හෝ item['item_id'].toString())
-        String productId = item['id'] ?? item['item_id'].toString();
-        String itemName = item['name'] ?? item['item_name'] ?? 'Unknown Item';
+      DocumentReference globalSalesSummaryRef = _db
+          .collection('sales_summary')
+          .doc('overall');
 
-        // විකුණපු ප්‍රමාණය (Qty) ලබා ගැනීම (int එකක් බවට ස්ථිර කරගන්නවා)
+      // 5. 📉 Summary එකෙන් මුදල් සහ ඕඩර් ගණන අඩු කිරීම
+      batch.set(globalSalesSummaryRef, {
+        'total_revenue': FieldValue.increment(totalAmount.value),
+        'total_orders': FieldValue.increment(1),
+        'last_updated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // 🔄 Items හරහා ලූප් එක
+      for (var item in selectedItems) {
+        String productId =
+            item['id']; // 🌟 FIX: දැන් මෙතනට 100% ක්ම නිවැරදි Firestore Document ID එක ලැබෙනවා
+        String itemName = item['name'] ?? 'Unknown Item';
         int quantitySold = int.tryParse(item['quantity'].toString()) ?? 1;
 
-        // /stock collection එකේ අදාල product එකට reference එක
         DocumentReference productRef = _db.collection('stock').doc(productId);
 
-        // 🛑 වැදගත්: දැනට තියෙන balance එක database එකෙන් කියවන්නේ නැතුව,
-        // Firestore FieldValue.increment() එකෙන් කෙලින්ම අඩු කරන්න පුළුවන් (Cost එක ඉතිරි වෙනවා)
+        // Stock එක අඩු කිරීම
         batch.update(productRef, {
-          'balance': FieldValue.increment(-quantitySold), // Stock එක අඩු කරයි
+          'balance': FieldValue.increment(-quantitySold),
           'updated_at': FieldValue.serverTimestamp(),
         });
 
-        // 5. 📝 ඒ Item එකට අයිති /transactions සබ්-කොලෙක්ෂන් එකට Entry එකක් දැමීම
+        // Sub-collection එකට Transaction එක දැමීම
         DocumentReference transRef = productRef
             .collection('transactions')
             .doc();
         batch.set(transRef, {
-          'quantity':
-              -quantitySold, // ඔයා කලින් ඉල්ලපු විදිහට සෘණ අගයක් ලෙස (-5)
+          'quantity': -quantitySold,
           'type': 'out',
-          'note':
-              'Sales Transaction (Order: ${saleRef.id})', // මේ සේල් එකේ ID එකත් නෝට් එකට දානවා, පස්සේ හොයන්න ලේසි වෙන්න
+          'note': 'Sales Transaction (Order: ${saleRef.id})',
           'timestamp': FieldValue.serverTimestamp(),
           'item_name': itemName,
-          // සටහන: FieldValue.increment පාවිච්චි කරන නිසා 'balance_after' එක කෙලින්ම batch එක ඇතුලෙදි ගන්න බැහැ.
-          // ඒක ප්‍රශ්නයක් වෙන්නේ නැහැ, මොකද උඩ ප්‍රධාන balance එක හරියටම update වෙන නිසා.
         });
       }
 
-      // 6. 🔥 එකවරම සියලුම Updates (Sale එක + හැම Item එකකම Stock + Transactions) Commit කිරීම
       await batch.commit();
+      Get.snackbar(
+        "Success",
+        "Sale recorded and stock updated successfully",
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+      );
 
-      Get.snackbar("Success", "Sale recorded and stock updated successfully");
-
-      // Clear cart and go back to main menu
       selectedItems.clear();
       amountController.clear();
       Get.offAll(() => const FrontPage());
     } catch (e) {
-      Get.snackbar("Error", "Sale failed: $e");
-      SnackBar(content: Text("Error saving sale: $e"));
+      Get.snackbar(
+        "Error",
+        "Sale failed: $e",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
     } finally {
       isLoading.value = false;
     }

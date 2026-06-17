@@ -17,8 +17,12 @@ class _OrderPageState extends State<OrderPage>
   late TabController _tabController;
   final FirestoreService _firestoreService = FirestoreService();
 
-  // Status config: label, icon, color
+  // 🔎 Search සඳහා අවශ්‍ය Variables
+  final TextEditingController _searchController = TextEditingController();
+  final RxString _searchQuery = ''.obs;
+
   final List<_TabConfig> _tabs = const [
+    _TabConfig('All', Icons.all_inbox_rounded, Color(0xFF607D8B)),
     _TabConfig('Pending', Icons.hourglass_top_rounded, Color(0xFFFF9800)),
     _TabConfig('Sent', Icons.local_shipping_rounded, Color(0xFF2196F3)),
     _TabConfig('Cash Collect', Icons.payments_rounded, Color(0xFF4CAF50)),
@@ -34,6 +38,7 @@ class _OrderPageState extends State<OrderPage>
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose(); // Memory leak නොවීමට මෙතනින් dispose කරන්න
     super.dispose();
   }
 
@@ -49,14 +54,37 @@ class _OrderPageState extends State<OrderPage>
         elevation: 0,
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          indicatorColor: Colors.transparent,
-          dividerColor: Colors.grey.shade200,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          tabs: _tabs.map((tab) => _buildTab(tab)).toList(),
+        actions: [
+          // Search Query එකක් තිබ්බොත් Clear බටන් එක පෙන්වන්න
+          Obx(
+            () => _searchQuery.value.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear_rounded),
+                    onPressed: () {
+                      _searchController.clear();
+                      _searchQuery.value = '';
+                    },
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ],
+        // TabBar එකට උඩින් Search Bar එක දාන්න PreferredSize Widget එකක් පාවිච්චි කළා
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(110),
+          child: Column(
+            children: [
+              _buildSearchBar(), // 🔎 Search Bar එක මෙතනට දැම්මා
+              TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                indicatorColor: Colors.transparent,
+                dividerColor: Colors.grey.shade200,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                tabs: _tabs.map((tab) => _buildTab(tab)).toList(),
+              ),
+            ],
+          ),
         ),
       ),
       body: StreamBuilder<List<SalesModel>>(
@@ -68,16 +96,63 @@ class _OrderPageState extends State<OrderPage>
 
           final allOrders = snapshot.data!;
 
-          return TabBarView(
-            controller: _tabController,
-            children: _tabs.map((tab) {
-              final filtered = allOrders
-                  .where((o) => o.status == tab.label)
-                  .toList();
-              return _buildOrderList(filtered, tab);
-            }).toList(),
-          );
+          // 🌟 Obx එක මඟින් User ටයිප් කරන කොටම UI එක වෙනස් කරයි
+          return Obx(() {
+            final query = _searchQuery.value;
+
+            // 1. මුලින්ම මුළු ලිස්ට් එකම Search query එකට අනුව filter කරනවා
+            final searchedOrders = allOrders.where((order) {
+              if (query.isEmpty) return true;
+
+              // ඔයාගේ SalesModel එකේ තියෙන parameters අනුව මේවා වෙනස් කරගන්න මල්ලි:
+              final customerName = order.customerName?.toLowerCase() ?? '';
+              final customerPhone = order.customerPhone;
+              final orderId = order.id?.toLowerCase() ?? '';
+
+              return customerName.contains(query) ||
+                  customerPhone.contains(query) ||
+                  orderId.contains(query);
+            }).toList();
+
+            // 2. ඊටපස්සේ ඒ filter වුන ලිස්ට් එක Tab එක අනුව බෙදනවා
+            return TabBarView(
+              controller: _tabController,
+              children: _tabs.map((tab) {
+                final filtered = tab.label == 'All'
+                    ? searchedOrders
+                    : searchedOrders
+                          .where((o) => o.status == tab.label)
+                          .toList();
+
+                return _buildOrderList(filtered, tab);
+              }).toList(),
+            );
+          });
         },
+      ),
+    );
+  }
+
+  // 🔎 Search Bar UI Component
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: TextField(
+        controller: _searchController,
+        onChanged: (value) {
+          _searchQuery.value = value.trim().toLowerCase();
+        },
+        decoration: InputDecoration(
+          hintText: "Search name, phone or ID...",
+          prefixIcon: const Icon(Icons.search_rounded, color: Colors.grey),
+          filled: true,
+          fillColor: const Color(0xFFF0F2F5),
+          contentPadding: const EdgeInsets.symmetric(vertical: 10),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(12),
+            borderSide: BorderSide.none,
+          ),
+        ),
       ),
     );
   }
@@ -87,75 +162,92 @@ class _OrderPageState extends State<OrderPage>
     return StreamBuilder<List<SalesModel>>(
       stream: _firestoreService.getAllSalesOrders(),
       builder: (context, snapshot) {
-        final count = snapshot.hasData
-            ? snapshot.data!.where((o) => o.status == tab.label).length
-            : 0;
+        // 🌟 Tab එකේ උඩ පේන Count එකත් Search එකට අනුව live අප්ඩේට් වෙන්න හැදුවා
+        return Obx(() {
+          final query = _searchQuery.value;
+          if (!snapshot.hasData) return _buildTabChip(tab, 0);
 
-        return AnimatedBuilder(
-          animation: _tabController,
-          builder: (context, _) {
-            final isSelected = _tabs[_tabController.index].label == tab.label;
-            return Tab(
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 7,
+          final filteredBySearch = snapshot.data!.where((order) {
+            if (query.isEmpty) return true;
+            final name = order.customerName?.toLowerCase() ?? '';
+            final phone = order.customerPhone;
+            final id = order.id?.toLowerCase() ?? '';
+            return name.contains(query) ||
+                phone.contains(query) ||
+                id.contains(query);
+          });
+
+          final count = tab.label == 'All'
+              ? filteredBySearch.length
+              : filteredBySearch.where((o) => o.status == tab.label).length;
+
+          return _buildTabChip(tab, count);
+        });
+      },
+    );
+  }
+
+  Widget _buildTabChip(_TabConfig tab, int count) {
+    return AnimatedBuilder(
+      animation: _tabController,
+      builder: (context, _) {
+        final isSelected = _tabs[_tabController.index].label == tab.label;
+        return Tab(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: isSelected
+                  ? tab.color.withValues(alpha: 0.12)
+                  : Colors.grey.shade100,
+              borderRadius: BorderRadius.circular(30),
+              border: Border.all(
+                color: isSelected ? tab.color : Colors.transparent,
+                width: 1.5,
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  tab.icon,
+                  size: 14,
+                  color: isSelected ? tab.color : Colors.grey,
                 ),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? tab.color.withValues(alpha: 0.12)
-                      : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(
-                    color: isSelected ? tab.color : Colors.transparent,
-                    width: 1.5,
+                const SizedBox(width: 6),
+                Text(
+                  tab.label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                    color: isSelected ? tab.color : Colors.grey,
                   ),
                 ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      tab.icon,
-                      size: 14,
-                      color: isSelected ? tab.color : Colors.grey,
+                if (count > 0) ...[
+                  const SizedBox(width: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 1,
                     ),
-                    const SizedBox(width: 6),
-                    Text(
-                      tab.label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: isSelected
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                        color: isSelected ? tab.color : Colors.grey,
+                    decoration: BoxDecoration(
+                      color: isSelected ? tab.color : Colors.grey.shade400,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    if (count > 0) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 1,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected ? tab.color : Colors.grey.shade400,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                        child: Text(
-                          '$count',
-                          style: const TextStyle(
-                            fontSize: 10,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            );
-          },
+                  ),
+                ],
+              ],
+            ),
+          ),
         );
       },
     );
@@ -171,7 +263,9 @@ class _OrderPageState extends State<OrderPage>
             Icon(tab.icon, size: 56, color: tab.color.withValues(alpha: 0.25)),
             const SizedBox(height: 12),
             Text(
-              "No ${tab.label} orders",
+              _searchQuery.value.isEmpty
+                  ? "No ${tab.label} orders"
+                  : "No matching orders found",
               style: TextStyle(color: Colors.grey.shade400, fontSize: 15),
             ),
           ],
@@ -182,7 +276,6 @@ class _OrderPageState extends State<OrderPage>
     final bool showSummary =
         tab.label == 'Cash Collect' || tab.label == 'Return';
 
-    // 🛠️ ඩෙස්ක්ටොප් සහ මොබයිල් තිර හඳුනා ගැනීමට LayoutBuilder යොදා ඇත
     return LayoutBuilder(
       builder: (context, constraints) {
         bool isDesktop = constraints.maxWidth > 600;
@@ -194,18 +287,23 @@ class _OrderPageState extends State<OrderPage>
               child: isDesktop
                   ? GridView.builder(
                       padding: const EdgeInsets.all(12),
-                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                        maxCrossAxisExtent: 500,
-                        mainAxisSpacing: 12,
-                        crossAxisSpacing: 12,
-                        mainAxisExtent:
-                            340, // 👈 බොත්තම් ලස්සනට පෙනීමට උස 340px දක්වා වැඩි කර ඇත
-                      ),
+                      gridDelegate:
+                          const SliverGridDelegateWithMaxCrossAxisExtent(
+                            maxCrossAxisExtent: 500,
+                            mainAxisSpacing: 12,
+                            crossAxisSpacing: 12,
+                            mainAxisExtent: 340,
+                          ),
                       itemCount: orders.length,
                       itemBuilder: (context, index) {
                         return _buildStatusAwareCard(
                           orders[index],
-                          tab,
+                          tab.label == 'All'
+                              ? _tabs.firstWhere(
+                                  (t) => t.label == orders[index].status,
+                                  orElse: () => tab,
+                                )
+                              : tab,
                           context,
                         );
                       },
@@ -216,7 +314,12 @@ class _OrderPageState extends State<OrderPage>
                       itemBuilder: (context, index) {
                         return _buildStatusAwareCard(
                           orders[index],
-                          tab,
+                          tab.label == 'All'
+                              ? _tabs.firstWhere(
+                                  (t) => t.label == orders[index].status,
+                                  orElse: () => tab,
+                                )
+                              : tab,
                           context,
                         );
                       },
@@ -286,7 +389,6 @@ class _OrderPageState extends State<OrderPage>
   }
 
   // ── Card with left accent color per status ──────────────────────────────────
-  // 🛠️ ClipRRect ඉවත් කර බටන්ස් පෙනෙන පරිදි සහ context එක නිවැරදිව ලැබෙන සේ සකසා ඇත
   Widget _buildStatusAwareCard(
     SalesModel sales,
     _TabConfig tab,
@@ -295,7 +397,6 @@ class _OrderPageState extends State<OrderPage>
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(
-        // වම් පසින් ලස්සන පාට තීරුවක් (Status Color Bar)
         border: Border(left: BorderSide(color: tab.color, width: 5)),
         borderRadius: const BorderRadius.only(
           topRight: Radius.circular(12),
@@ -313,16 +414,12 @@ class _OrderPageState extends State<OrderPage>
       child: SalesOrderCard(
         order: sales,
         onTap: () => Get.to(() => SalesEditPage(sales: sales)),
-        onDelete: () => _firestoreService.deleteOrderShow(
-          sales.id!,
-          context,
-        ), // 👈 Get.context වෙනුවට සාමාන්‍ය context එක දී ඇත
+        onDelete: () => _firestoreService.deleteOrderShow(sales.id!, context),
       ),
     );
   }
 }
 
-// ── Simple config data class ────────────────────────────────────────────────
 class _TabConfig {
   final String label;
   final IconData icon;

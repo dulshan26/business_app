@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:own/getxpac/sales/sales_model.dart';
+import 'package:own/utils/loading.dart';
 
 class SalesEntryPage extends StatelessWidget {
   final String customerPhone;
@@ -72,7 +73,7 @@ class SalesEntryPage extends StatelessWidget {
             flex: 2,
             child: Obx(() {
               if (controller.isLoading.value) {
-                return const Center(child: CircularProgressIndicator());
+                return const Center(child: CustomLoading());
               }
               if (controller.filteredStockItems.isEmpty) {
                 return const Center(child: Text("No items found in Stock"));

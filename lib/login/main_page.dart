@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:own/getxpac/front_page.dart';
 import 'package:own/login/login_page_state.dart';
+import 'package:own/utils/loading.dart';
 
 class MainPage extends StatelessWidget {
   const MainPage({super.key});
@@ -12,6 +13,10 @@ class MainPage extends StatelessWidget {
       body: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CustomLoading());
+          }
+
           if (snapshot.hasData) {
             return FrontPage();
           } else {
