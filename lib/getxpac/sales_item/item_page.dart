@@ -96,12 +96,97 @@ class StockListPage extends StatelessWidget {
                   name: nameController.text.trim(),
                   price: double.parse(priceController.text.trim()),
                   initialStock: int.parse(stockController.text.trim()),
+                  mainImage: '',
+                  images: [],
                 );
               }
             },
             child: const Text("Add Item"),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showImagePreview(
+    BuildContext context,
+    String imageUrl,
+    String itemName,
+  ) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: InteractiveViewer(
+                minScale: 0.5,
+                maxScale: 4,
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return SizedBox(
+                      height: 300,
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          value: loadingProgress.expectedTotalBytes != null
+                              ? loadingProgress.cumulativeBytesLoaded /
+                                    loadingProgress.expectedTotalBytes!
+                              : null,
+                          color: Colors.white,
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    height: 250,
+                    width: 250,
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.broken_image_outlined,
+                      color: Colors.white,
+                      size: 64,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: CircleAvatar(
+                backgroundColor: Colors.black54,
+                radius: 18,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.close, color: Colors.white, size: 20),
+                  onPressed: () => Get.back(),
+                ),
+              ),
+            ),
+            Positioned(
+              bottom: 12,
+              left: 12,
+              right: 50,
+              child: Text(
+                itemName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -229,6 +314,15 @@ class StockListPage extends StatelessWidget {
                   final double price = (product['price'] ?? 0).toDouble();
                   final bool isOutOfStock = balance <= 0;
 
+                  // 🌟 0 වෙනි පින්තූරය (Image 0) ආරක්ෂිතව වෙන් කරගන්නා ආකාරය
+                  String? imageUrl;
+                  if (product['images'] != null &&
+                      product['images'] is List &&
+                      (product['images'] as List).isNotEmpty) {
+                    // ලිස්ට් එකේ තියෙන 0 වෙනි element එක (First Image) String එකක් විදිහට ගන්නවා
+                    imageUrl = product['images'][0]?.toString();
+                  }
+
                   return Card(
                     margin: const EdgeInsets.symmetric(vertical: 6),
                     elevation: 1,
@@ -243,15 +337,79 @@ class StockListPage extends StatelessWidget {
                       ),
                       shape: const Border(),
                       collapsedShape: const Border(),
-                      leading: CircleAvatar(
-                        backgroundColor: isOutOfStock
-                            ? Colors.red.shade50
-                            : Colors.blue.shade50,
-                        child: Icon(
-                          Icons.inventory_2_outlined,
-                          color: isOutOfStock
-                              ? Colors.red
-                              : Colors.blue.shade700,
+                      leading: GestureDetector(
+                        onTap: (imageUrl != null && imageUrl.isNotEmpty)
+                            ? () => _showImagePreview(
+                                context,
+                                imageUrl!,
+                                itemName,
+                              )
+                            : null,
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            color: isOutOfStock
+                                ? Colors.red.shade50
+                                : Colors.blue.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: isOutOfStock
+                                  ? Colors.red.shade100
+                                  : Colors.blue.shade100,
+                              width: 1,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(7),
+                            child:
+                                imageUrl != null &&
+                                    imageUrl.isNotEmpty &&
+                                    imageUrl.startsWith('http')
+                                ? Image.network(
+                                    imageUrl,
+                                    fit: BoxFit.cover,
+                                    loadingBuilder:
+                                        (context, child, loadingProgress) {
+                                          if (loadingProgress == null) {
+                                            return child;
+                                          }
+                                          return Center(
+                                            child: SizedBox(
+                                              width: 16,
+                                              height: 16,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                valueColor:
+                                                    AlwaysStoppedAnimation<
+                                                      Color
+                                                    >(
+                                                      isOutOfStock
+                                                          ? Colors.red
+                                                          : Colors.blue,
+                                                    ),
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return Icon(
+                                        Icons.broken_image_outlined,
+                                        color: isOutOfStock
+                                            ? Colors.red
+                                            : Colors.blue.shade700,
+                                        size: 22,
+                                      );
+                                    },
+                                  )
+                                : Icon(
+                                    Icons.inventory_2_outlined,
+                                    color: isOutOfStock
+                                        ? Colors.red
+                                        : Colors.blue.shade700,
+                                    size: 22,
+                                  ),
+                          ),
                         ),
                       ),
                       title: Text(

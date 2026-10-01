@@ -103,6 +103,44 @@ class _SalesEditPageState extends State<SalesEditPage> {
     }
   }
 
+  Future<void> _loadCurfoxCities1() async {
+    try {
+      String token =
+          "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiYjFiNDk3OWM1YjEyNjEwNjUxMGFhZDMyMDQ0MzBiMWE0NWYyZTFiMzAzOTIzMTQ3ZjdjM2YyNWEzMGZkMDU0MzdhZWZjNmJiOTVkZWI2OTEiLCJpYXQiOjE3NzI3MzU4MzMuMjM2NDYzLCJuYmYiOjE3NzI3MzU4MzMuMjM2NDY1LCJleHAiOjQ5Mjg0MDk0MzMuMjIyMzE0LCJzdWIiOiI0Njc0Iiwic2NvcGVzIjpbXX0.jVbxQXE8AOGvYuWPQmDGA7VyYvPyw73AnyiCpGgdd0XD7GQCtMj5HLn0YNADASZwWOxRxK9J92OB0CW3KD_ZUtku7VYIbb8SYKOYDzBNrdt8EfiM7cKMf8vWaD22jnwi33_TEEdWzQxuI5HMqkq0AiKOm93lKgt94SGmeSl_xlWORKBENB4qvawCiQhRgluMnyxInC7mmbPGgHY1Mx_4IZ5nEXto3C6wrlLdfPJNTlWnJPALeHKiNPRLD6kHS0-Mo_wotlddLRuKSfj19kxkazfBm-cuH8cJj76pFCuVKbQCWzC-ok7gK2-ZwO3nvEq9VnEQrG62bxkgFe8orEZIfm3Saw99sbUr7EwoHOvMircz4FMHm-ls5c8VqUpy81xn8TyYeZ6mTyZk0oJ0mVso_JbN5wU6hmKmxX-amhA2UTQ1f20Ic61JVskkmZjkmDmdBQBU2yribDqzD06_SH3I7n8KueHYNXOElHo-D1Gp2wU05zTdROMurfegGzTvCeR8v6lAaDygLXyG2quK6RF0LN_kwXat6JqRCAuyedHfzts0TEe1Yps8LY1LfyW4PtcFaZcUoLPjQwsDcM6yE0237I1qDMNhobp_qB_3V1xkenN7sPkLn47iRodN7-PoFMzG3xzffZvm4tVJBRcKuvxgTSCDf2GkJZSbz20RRv7kDZo";
+
+      String tenant = "royalexpress";
+
+      // Use the existing Firestore-backed city loader instead of a missing helper.
+      List<Map<String, dynamic>> cities = await FirestoreService()
+          .loadCurfoxCities(token: token, tenant: tenant);
+
+      if (mounted) {
+        setState(() {
+          curfoxCities = cities;
+          isLoadingCities = false;
+
+          if (selectedCityName.isNotEmpty) {
+            final matchedCity = curfoxCities.firstWhere(
+              (city) =>
+                  city['name'].toString().toLowerCase() ==
+                  selectedCityName.toLowerCase(),
+              orElse: () => {},
+            );
+            if (matchedCity.isNotEmpty) {
+              selectedCityId = matchedCity['id'];
+              selectedCityState = matchedCity['state_name'] ?? "Colombo";
+            }
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => isLoadingCities = false);
+      }
+      Get.snackbar("Error", "Error loading cities: $e");
+    }
+  }
+
   void _calculateTotal() {
     double total = 0.0;
     for (var item in editedItems) {
@@ -193,14 +231,16 @@ class _SalesEditPageState extends State<SalesEditPage> {
                           return const Iterable<Map<String, dynamic>>.empty();
                         }
                         // 🔍 User ටයිප් කරන අකුරු අනුව Cities ලිස්ට් එක Filter කරනවා (Case Insensitive)
-                        return curfoxCities.where((
-                          Map<String, dynamic> option,
-                        ) {
-                          return option['name']
-                              .toString()
-                              .toLowerCase()
-                              .contains(textEditingValue.text.toLowerCase());
-                        });
+                        return curfoxCities
+                            .where((Map<String, dynamic> option) {
+                              return option['name']
+                                  .toString()
+                                  .toLowerCase()
+                                  .contains(
+                                    textEditingValue.text.toLowerCase(),
+                                  );
+                            })
+                            .take(15); // Limit to 15 results for performance
                       },
                       onSelected: (Map<String, dynamic> selection) {
                         setState(() {

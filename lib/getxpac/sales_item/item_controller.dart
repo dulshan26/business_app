@@ -178,6 +178,8 @@ class StockListController extends GetxController {
     required String name,
     required double price,
     required int initialStock,
+    required String mainImage,
+    required List<String> images,
   }) async {
     try {
       isLoading.value = true;
@@ -191,6 +193,8 @@ class StockListController extends GetxController {
         'item_name': name,
         'price': price,
         'balance': initialStock,
+        'main_image': mainImage,
+        'images': images,
         'created_at': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),
       });
@@ -257,16 +261,19 @@ class StockListController extends GetxController {
     required String category,
     required double price,
     required int balance,
+    required String mainImage,
     required List<String> images,
     required bool isActive,
   }) async {
     try {
+      isLoading.value = true;
       await _db.collection('stock').doc(productId).update({
         'item_name': name,
         'description': description,
         'category': category,
         'price': price,
         'balance': balance,
+        'main_image': mainImage,
         'images': images,
         'isActive': isActive,
         'updated_at': FieldValue.serverTimestamp(),
@@ -275,6 +282,22 @@ class StockListController extends GetxController {
       Get.snackbar("Success", "Product updated successfully");
     } catch (e) {
       Get.snackbar("Error", e.toString());
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  // 🌟 ඔයාගේ StockListController එක ඇතුළේ තියෙන variables මේ විදිහට update කරන්න:
+  var selectedCategory =
+      "".obs; // මුලින්ම කිසිම category එකක් select වෙලා නෑ (Show All)
+
+  void changeCategory(String category) {
+    if (selectedCategory.value == category) {
+      // 🔄 දෙවැනි පාර ක්ලික් කළොත් deselect කරලා clear කරනවා (Show All)
+      selectedCategory.value = "";
+    } else {
+      // 🎯 පළමු පාර ක්ලික් කළොත් ඒ category එක select කරනවා
+      selectedCategory.value = category;
     }
   }
 }

@@ -558,4 +558,20 @@ class FirestoreService {
       rethrow;
     }
   }
+
+  List<Map<String, dynamic>> cachedCurfoxCities = [];
+  Future<List<Map<String, dynamic>>> getCachedCities({
+    required String token,
+    required String tenant,
+  }) async {
+    if (cachedCurfoxCities.isNotEmpty) {
+      return cachedCurfoxCities;
+    }
+    List<Map<String, dynamic>> cities = await fetchCurfoxCities(
+      token: token,
+      tenant: tenant,
+    );
+    cachedCurfoxCities = cities;
+    return cities;
+  }
 }

@@ -1,16 +1,16 @@
 // ignore: file_names
 import 'package:flutter/material.dart';
 import 'package:get/route_manager.dart';
-import 'package:own/login/main_page.dart';
+import 'package:own/ecommerce/page/home.dart';
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
-      title: 'Own',
+      title: 'Techtonic.lk - Smart Solutions',
       debugShowCheckedModeBanner: false,
-      home: MainPage(),
+      home: HomePage(),
     );
   }
 }

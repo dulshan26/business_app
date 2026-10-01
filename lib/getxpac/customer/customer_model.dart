@@ -1,9 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:get/get_navigation/src/extension_navigation.dart';
-import 'package:get/get_rx/src/rx_types/rx_types.dart';
-import 'package:get/get_state_manager/src/simple/get_controllers.dart';
+import 'package:get/get.dart';
 import 'package:own/getxpac/customer/customer_form.dart';
 import 'package:own/getxpac/sales/sales_page.dart';
 
@@ -13,6 +10,7 @@ class CustomerModel {
   final String? phone;
   final String? phone2;
   final String? address;
+  final bool? hasReturn;
 
   CustomerModel({
     required this.id,
@@ -20,20 +18,27 @@ class CustomerModel {
     this.phone,
     this.phone2,
     this.address,
+    this.hasReturn,
   });
-  //covert model to Map(for save firebase)
+
   Map<String, dynamic> toMap() {
-    return {'name': name, 'phone': phone, 'phone2': phone2, 'address': address};
+    return {
+      'name': name,
+      'phone': phone,
+      'phone2': phone2,
+      'address': address,
+      'hasReturn': hasReturn,
+    };
   }
 
-  //get data from firebase and convert to model
-  factory CustomerModel.formMap(Map<String, dynamic> map) {
+  factory CustomerModel.fromMap(Map<String, dynamic> map, String docId) {
     return CustomerModel(
-      id: map['id'] ?? '',
+      id: docId,
       name: map['name'] ?? '',
       phone: map['phone'] ?? '',
       phone2: map['phone2'] ?? '',
       address: map['address'] ?? '',
+      hasReturn: map['hasReturn'] ?? false,
     );
   }
 
@@ -45,6 +50,7 @@ class CustomerModel {
       phone: data['phone'] ?? 'No Phone',
       phone2: data['phone2'] ?? 'No Phone 2',
       address: data['address'] ?? 'No Address',
+      hasReturn: data['hasReturn'] ?? false,
     );
   }
 }
@@ -59,7 +65,32 @@ class CustomerController extends GetxController {
 
   var isLoading = false.obs;
   var isExistingCustomer = false.obs;
+  var hasReturn = false.obs;
   String currentCustomerId = '';
+  var customerList = <CustomerModel>[].obs;
+  var searchQuery = "".obs;
+
+  List<CustomerModel> get filteredCustomerList {
+    if (searchQuery.value.isEmpty) {
+      return customerList;
+    }
+    return customerList.where((customer) {
+      final nameLower = customer.name.toLowerCase();
+      final phone = customer.phone?.toLowerCase() ?? "";
+      final phone2 = customer.phone2?.toLowerCase() ?? "";
+      final searchLower = searchQuery.value.toLowerCase();
+
+      return nameLower.contains(searchLower) ||
+          phone.contains(searchLower) ||
+          phone2.contains(searchLower);
+    }).toList();
+  }
+
+  @override
+  void onInit() {
+    super.onInit();
+    fetchCustomersRealTime();
+  }
 
   // Step 1: Check if customer exists
   Future<void> checkAndNavigate(String phone) async {
@@ -72,7 +103,6 @@ class CustomerController extends GetxController {
           .get();
 
       if (query.docs.isNotEmpty) {
-        // Customer Found: Pre-fill data
         var doc = query.docs.first;
         var customer = CustomerModel.fromSnapshot(doc);
 
@@ -81,16 +111,16 @@ class CustomerController extends GetxController {
         phone2Controller.text = customer.phone2 ?? '';
         addressController.text = customer.address ?? '';
         isExistingCustomer.value = true;
+        hasReturn.value = customer.hasReturn ?? false;
       } else {
-        // New Customer: Clear fields
         currentCustomerId = '';
         nameController.clear();
         phone2Controller.clear();
         addressController.clear();
         isExistingCustomer.value = false;
+        hasReturn.value = false;
       }
 
-      // Navigate to the form page
       Get.to(() => CustomerFormPage(phoneNumber: phone));
     } catch (e) {
       Get.snackbar("Error", "Search failed: $e");
@@ -99,8 +129,11 @@ class CustomerController extends GetxController {
     }
   }
 
-  // Step 2: Save or Update Customer Details
-  Future<void> saveCustomerDetails(String phone) async {
+  // Step 2: Save or Update Customer Details (FIXED: Added navigateToSales parameter)
+  Future<void> saveCustomerDetails(
+    String phone, {
+    required bool navigateToSales,
+  }) async {
     if (nameController.text.isEmpty) {
       Get.snackbar("Error", "Name is required");
       return;
@@ -114,6 +147,7 @@ class CustomerController extends GetxController {
         'phone': phone,
         'phone2': phone2Controller.text.trim(),
         'address': addressController.text.trim(),
+        'hasReturn': hasReturn.value,
       };
 
       if (isExistingCustomer.value) {
@@ -123,22 +157,106 @@ class CustomerController extends GetxController {
             .doc(currentCustomerId)
             .update(customerData);
       } else {
-        // Create new
-        await _db.collection('customers').add(customerData);
+        customerData['hasReturn'] = false; // Default value for new customers
+
+        // Create new and save its generated ID immediately
+        DocumentReference docRef = await _db
+            .collection('customers')
+            .add(customerData);
+        currentCustomerId = docRef.id;
+        isExistingCustomer.value = true;
       }
-      Get.to(
-        () => SalesEntryPage(
-          customerPhone: phone,
-          customerName: nameController.text.trim(),
-          customerAddress: addressController.text.trim(),
-          customerPhone2: phone2Controller.text.trim(),
-        ),
-      );
-      Get.snackbar("Success", "Customer details saved.");
+
+      // Check where to route next based on the UI request
+      if (navigateToSales) {
+        Get.off(
+          () => SalesEntryPage(
+            customerPhone: phone,
+            customerName: nameController.text.trim(),
+            customerAddress: addressController.text.trim(),
+            customerPhone2: phone2Controller.text.trim(),
+          ),
+        );
+      } else {
+        Get.back(); // Returns to previous screen safely
+      }
     } catch (e) {
       Get.snackbar("Error", "Save failed: $e");
     } finally {
       isLoading.value = false;
     }
+  }
+
+  Future<void> markCustomerAsReturned(String phone) async {
+    try {
+      var query = await _db
+          .collection('customers')
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get();
+
+      if (query.docs.isNotEmpty) {
+        var docRef = query.docs.first.reference;
+        await docRef.update({'hasReturn': true});
+        hasReturn.value = true;
+        Get.snackbar("Success", "Customer marked as returned");
+      } else {
+        Get.snackbar("Error", "Customer not found");
+      }
+    } catch (e) {
+      Get.snackbar("Error", "Failed to mark customer as returned: $e");
+    }
+  }
+
+  void fetchCustomersRealTime() {
+    _db.collection('customers').snapshots().listen((snapshot) {
+      customerList.value = snapshot.docs
+          .map((doc) => CustomerModel.fromSnapshot(doc))
+          .toList();
+    });
+  }
+
+  Future<void> fetchCustomerOnce() async {
+    try {
+      isLoading.value = true;
+      var querySnapshot = await _db.collection('customers').get();
+      customerList.value = querySnapshot.docs
+          .map((doc) => CustomerModel.fromSnapshot(doc))
+          .toList();
+    } catch (e) {
+      Get.snackbar("error", "Failed to fetch customer : $e");
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> deleteCustomer(String customerId) async {
+    if (customerId.isEmpty) {
+      Get.snackbar("error", "No cusotmer id");
+      return;
+    }
+    try {
+      isLoading.value = true;
+      //delete form firebase
+      await _db.collection('customers').doc(customerId).delete();
+
+      Get.rawSnackbar(title: 'Deleted', message: "Customer removed successlly");
+    } catch (e) {
+      Get.snackbar('Error', 'Failed to deleted $e');
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  int get totalCustomerCount => customerList.length;
+
+  int get filterCustomerCount => filteredCustomerList.length;
+
+  List<CustomerModel> get normalCustomerList {
+    return filteredCustomerList.where((c) => c.hasReturn == false).toList();
+  }
+
+  List<CustomerModel> get returnedCustomerList {
+    return filteredCustomerList.where((c) => c.hasReturn == true).toList();
   }
 }

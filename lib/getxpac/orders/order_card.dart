@@ -2,29 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:own/firebase/firestore.dart';
+import 'package:own/getxpac/customer/customer_model.dart';
 import 'package:own/getxpac/sales/sales_model.dart';
 
 class SalesOrderCard extends StatelessWidget {
   final SalesModel order;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback onPdfPressed; // 👈 PDF callback parameter
 
   const SalesOrderCard({
     super.key,
     required this.order,
     required this.onTap,
     required this.onDelete,
+    required this.onPdfPressed, // 👈 Required in constructor
   });
 
   // 🛠️ Function to show the Status Selector Popup Dialog
-  // 🛠️ Function to show the Status Selector Popup Dialog
   void _showStatusDialog(BuildContext context) {
     final List<String> statusOptions = [
+      'Web Sales',
       'Pending',
       'Sent',
       'Cash Collect',
       'Return',
     ];
+
     String localSelectedStatus = statusOptions.contains(order.status)
         ? order.status
         : 'Pending';
@@ -39,7 +43,7 @@ class SalesOrderCard extends StatelessWidget {
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
         ),
         content: StatefulBuilder(
-          builder: (BuildContext context, StateSetter setState) {
+          builder: (BuildContext context, StateSetter setDialogState) {
             return Material(
               color: Colors.transparent,
               type: MaterialType.transparency,
@@ -49,16 +53,19 @@ class SalesOrderCard extends StatelessWidget {
                   return RadioListTile<String>(
                     title: Text(status, style: const TextStyle(fontSize: 14)),
                     value: status,
+                    // ignore: deprecated_member_use
                     groupValue: localSelectedStatus,
-                    onChanged: (value) {
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                    dense: true,
+                    activeColor: Colors.blue.shade800,
+                    // ignore: deprecated_member_use
+                    onChanged: (String? value) {
                       if (value != null) {
-                        setState(() {
+                        setDialogState(() {
                           localSelectedStatus = value;
                         });
                       }
                     },
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                    dense: true,
                   );
                 }).toList(),
               ),
@@ -80,16 +87,13 @@ class SalesOrderCard extends StatelessWidget {
             ),
             onPressed: () async {
               try {
-                // 💡 1. Firestore එකේ status එක update කරන්න සර්විස් එකට අලුත් status එක යවනවා
                 await FirestoreService().updateOrderStatus(
                   order.id!,
                   localSelectedStatus,
                 );
 
-                // 💡 2. වැඩේ සාර්ථක නම් Dialog එක වහනවා
                 Get.back();
 
-                // 💡 3. සාර්ථක බව පෙන්වන්න පොඩි Notification (Snackbar) එකක් දානවා
                 Get.snackbar(
                   "Status Updated",
                   "Order status changed to $localSelectedStatus successfully!",
@@ -97,8 +101,13 @@ class SalesOrderCard extends StatelessWidget {
                   backgroundColor: Colors.green,
                   colorText: Colors.white,
                 );
+
+                if (localSelectedStatus == 'Return') {
+                  await CustomerController().markCustomerAsReturned(
+                    order.customerPhone,
+                  );
+                }
               } catch (e) {
-                // යම් හෙයකින් error එකක් ආවොත් ඒක පෙන්වනවා
                 Get.snackbar(
                   "Error",
                   "Failed to update status: $e",
@@ -123,6 +132,14 @@ class SalesOrderCard extends StatelessWidget {
         ? "${order.courierUpdatedAt!.toDate().hour}:${order.courierUpdatedAt!.toDate().minute.toString().padLeft(2, '0')}"
         : "Not synced";
 
+    final bool isWebSale = order.status == 'Web Sales';
+    final Color badgeBgColor = isWebSale
+        ? Colors.purple.shade50
+        : Colors.blue.shade100;
+    final Color badgeTextColor = isWebSale
+        ? Colors.purple.shade800
+        : const Color(0xFF0C447C);
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       elevation: 0,
@@ -136,7 +153,7 @@ class SalesOrderCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. පාරිභෝගික තොරතුරු
+              // 1. Customer Details
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,7 +216,6 @@ class SalesOrderCard extends StatelessWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // 🛠️ UPDATED: Tapping this container now triggers the Confirmation Dialog Popup
                       GestureDetector(
                         onTap: () => _showStatusDialog(context),
                         child: Container(
@@ -208,7 +224,7 @@ class SalesOrderCard extends StatelessWidget {
                             vertical: 6,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.blue.shade100,
+                            color: badgeBgColor,
                             borderRadius: BorderRadius.circular(99),
                           ),
                           child: Row(
@@ -216,18 +232,14 @@ class SalesOrderCard extends StatelessWidget {
                             children: [
                               Text(
                                 order.status,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 12,
                                   fontWeight: FontWeight.w500,
-                                  color: Color(0xFF0C447C),
+                                  color: badgeTextColor,
                                 ),
                               ),
                               const SizedBox(width: 4),
-                              const Icon(
-                                Icons.edit,
-                                size: 12,
-                                color: Color(0xFF0C447C),
-                              ),
+                              Icon(Icons.edit, size: 12, color: badgeTextColor),
                             ],
                           ),
                         ),
@@ -247,7 +259,7 @@ class SalesOrderCard extends StatelessWidget {
 
               const Divider(height: 24, thickness: 0.5),
 
-              // 2. Courier Status සහ Tracking පෙන්වන කොටස
+              // 2. Courier Status & Tracking
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -301,7 +313,7 @@ class SalesOrderCard extends StatelessWidget {
 
               const Divider(height: 24, thickness: 0.5),
 
-              // 3. භාණ්ඩ ලැයිස්තුව (Items List)
+              // 3. Items List
               if (order.items.isNotEmpty) ...[
                 const Text(
                   "Items:",
@@ -329,9 +341,10 @@ class SalesOrderCard extends StatelessWidget {
                 const Divider(height: 16, thickness: 0.5),
               ],
 
-              // 4. බටන්ස් පේළිය (Refresh, Edit, Delete)
+              // 4. Action Buttons (Create Courier, Sync, PDF, Edit, Delete)
               Wrap(
                 alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 spacing: 4,
                 runSpacing: 4,
                 children: [
@@ -357,6 +370,7 @@ class SalesOrderCard extends StatelessWidget {
                   ),
                   IconButton(
                     icon: const Icon(Icons.refresh, color: Colors.blue),
+                    tooltip: "Sync Courier Status",
                     onPressed: () async {
                       if (order.trackingNumber != null &&
                           order.trackingNumber!.isNotEmpty) {
@@ -382,6 +396,15 @@ class SalesOrderCard extends StatelessWidget {
                         );
                       }
                     },
+                  ),
+                  // 📄 PDF Invoice Button
+                  IconButton(
+                    icon: const Icon(
+                      Icons.picture_as_pdf_rounded,
+                      color: Color(0xFF102A43),
+                    ),
+                    tooltip: "Print Invoice PDF",
+                    onPressed: onPdfPressed,
                   ),
                   TextButton(onPressed: onTap, child: const Text("Edit")),
                   TextButton(

@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
-import 'package:own/ecommerce/home.dart';
 import 'package:own/firebase/firestore.dart';
 import 'package:own/getxpac/customer/customer_form.dart';
 import 'package:own/getxpac/customer/customer_model.dart';
+import 'package:own/getxpac/customer/customer_page.dart';
 import 'package:own/getxpac/orders/order_page.dart';
 import 'package:own/getxpac/sales_item/item_page.dart';
+import 'package:own/getxpac/summery/banner_manager.dart';
+import 'package:own/getxpac/summery/summery.dart';
 import 'package:own/utils/layout.dart';
+// 🌟 මෙතනට ඔයා කලින් හදපු AdminBannerManager එක තියෙන path එක import කරගන්න මචං
+// import 'package:own/ecommerce/admin/admin_banner_manager.dart';
 
 class FrontPage extends StatelessWidget {
   const FrontPage({super.key});
@@ -33,6 +37,7 @@ class FrontPage extends StatelessWidget {
             _buildHeaderBanner(isDesktop: false),
             _buildStatSummary(),
             _buildSectionTitle('Quick Actions'),
+            // Grid එකේ cards ගාණ වැඩි නිසා Mobile එකට aspectRatio එක 1.4 ක්ලීන්
             _buildQuickActionsGrid(crossAxisCount: 2, aspectRatio: 1.4),
             _buildSectionTitle('Recent Activity'),
             _buildRecentActivityList(),
@@ -50,7 +55,6 @@ class FrontPage extends StatelessWidget {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Left Side Main Content (Takes up the majority of space)
           Expanded(
             flex: 3,
             child: SingleChildScrollView(
@@ -61,17 +65,13 @@ class FrontPage extends StatelessWidget {
                   _buildHeaderBanner(isDesktop: true),
                   _buildStatSummary(),
                   _buildSectionTitle('Quick Actions'),
-                  // Wider cards on desktop look cleaner with a 1.8 aspect ratio
-                  _buildQuickActionsGrid(crossAxisCount: 2, aspectRatio: 1.8),
+                  // Desktop එකේ cards 3ක් දාමු එක පේළියට පට්ට professional පෙනුමක් එන්න
+                  _buildQuickActionsGrid(crossAxisCount: 3, aspectRatio: 1.6),
                 ],
               ),
             ),
           ),
-
-          // Vertical Divider
           VerticalDivider(width: 1, color: Colors.grey.withValues(alpha: 0.2)),
-
-          // Right Side Sidebar (Dedicated panel for activities)
           Expanded(
             flex: 2,
             child: Container(
@@ -95,8 +95,6 @@ class FrontPage extends StatelessWidget {
     );
   }
 
-  // --- SHARED REFACTORED COMPONENTS ---
-
   PreferredSizeWidget _buildAppBar() {
     return AppBar(
       title: const Text(
@@ -117,7 +115,6 @@ class FrontPage extends StatelessWidget {
     );
   }
 
-  // Modified to handle sharp corner designs on Desktop vs Mobile
   Widget _buildHeaderBanner({required bool isDesktop}) {
     return Container(
       width: double.infinity,
@@ -125,8 +122,7 @@ class FrontPage extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.blueAccent,
         borderRadius: isDesktop
-            ? BorderRadius
-                  .zero // Keeps desktop looking clean and flat
+            ? BorderRadius.zero
             : const BorderRadius.only(
                 bottomLeft: Radius.circular(24),
                 bottomRight: Radius.circular(24),
@@ -159,11 +155,15 @@ class FrontPage extends StatelessWidget {
       child: Row(
         children: [
           Expanded(
-            child: _buildStatCard(
-              'Today\'s Sales',
-              'Rs. 12,450',
-              Icons.trending_up_rounded,
-              Colors.green,
+            child: GestureDetector(
+              onTap: () => Get.to(SalesDashboardView()),
+              child: _buildStatCard(
+                'Total Sale',
+                'Summary',
+                Icons.trending_up_rounded,
+                Colors.green,
+                () => Get.to(SalesDashboardView()),
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -173,6 +173,7 @@ class FrontPage extends StatelessWidget {
               '48 Users',
               Icons.people_outline_rounded,
               Colors.orange,
+              () => Get.to(SalesDashboardView()),
             ),
           ),
         ],
@@ -185,58 +186,63 @@ class FrontPage extends StatelessWidget {
     String value,
     IconData icon,
     Color color,
+    VoidCallback onTap,
   ) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(color: Colors.grey[500], fontSize: 11),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: Colors.grey.withValues(alpha: 0.1),
+              width: 1,
             ),
           ),
-        ],
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(color: Colors.grey[500], fontSize: 11),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
 
-  // Modified to take grid parameters for layout sizing changes
+  // --- 🛠️ UPDATED QUICK ACTIONS GRID ---
   Widget _buildQuickActionsGrid({
     required int crossAxisCount,
     required double aspectRatio,
@@ -257,7 +263,7 @@ class FrontPage extends StatelessWidget {
           onTap: () => showPhoneDialog(),
         ),
         _buildMenuCard(
-          title: 'Customers Directory',
+          title: 'Sales Details',
           icon: Icons.contact_page_outlined,
           color: Colors.purple,
           onTap: () {
@@ -266,19 +272,25 @@ class FrontPage extends StatelessWidget {
           },
         ),
         _buildMenuCard(
-          title: 'Transaction History',
+          title: 'Stocks',
           icon: Icons.history_rounded,
           color: Colors.teal,
-          onTap: () {
-            Get.to(() => StockListPage());
-          },
+          onTap: () => Get.to(() => StockListPage()),
         ),
         _buildMenuCard(
-          title: 'Analytics Reports',
-          icon: Icons.bar_chart_rounded,
+          title: 'Customers',
+          icon: Icons.person_3_outlined,
           color: Colors.redAccent,
+          onTap: () => Get.to(() => const CustomerListPage()),
+        ),
+
+        // 🌟 NEW: HERO BANNER CHANGER CARD
+        _buildMenuCard(
+          title: 'E-com Banner Manager',
+          icon: Icons.auto_awesome_motion_rounded,
+          color: Colors.amber.shade800,
           onTap: () {
-            Get.to(() => const HomePage()); // Placeholder for analytics page
+            Get.to(() => const AdminBannerManager());
           },
         ),
       ],
@@ -318,11 +330,19 @@ class FrontPage extends StatelessWidget {
                 ),
                 child: Icon(icon, color: color, size: 24),
               ),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 14,
+
+              Expanded(
+                child: Align(
+                  alignment: Alignment.bottomLeft,
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -426,14 +446,10 @@ void showPhoneDialog() {
             }
 
             controller.checkAndNavigate(phone);
-
-            // 🛠️ FIX: Close the dialog first and let the routing finish cleanly
             Get.back();
             Get.to(() => CustomerFormPage(phoneNumber: phone));
 
-            // 🛠️ FIX: Allow the new page view engine state to settle before firing the snackbar
             await Future.delayed(const Duration(milliseconds: 100));
-
             Get.snackbar(
               "Success",
               "Navigating to customer form for $phone",

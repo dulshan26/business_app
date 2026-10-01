@@ -300,4 +300,93 @@ class SalesController extends GetxController {
       isLoading.value = false;
     }
   }
+
+  Future<bool> placeWebOrder({
+    required String phone,
+    required String name,
+    required String address,
+    required String phone2,
+  }) async {
+    if (selectedItems.isEmpty) return false;
+
+    try {
+      isLoading.value = true;
+      WriteBatch batch = _db.batch();
+      DocumentReference saleRef = _db.collection('sales_new').doc();
+
+      // 🛒 Firebase එක බ්ලොක් නොවන ලෙස පිරිසිදු Maps ලැයිස්තුවක් සාදා ගැනීම
+      List<Map<String, dynamic>> structuredItems = selectedItems.map((item) {
+        return {
+          'id': item['id'].toString(),
+          'name': item['name'].toString(),
+          'quantity': int.tryParse(item['quantity'].toString()) ?? 1,
+          'price': double.tryParse(item['price'].toString()) ?? 0.0,
+        };
+      }).toList();
+
+      SalesModel newSale = SalesModel(
+        customerPhone: phone,
+        items: structuredItems, // 🎯 පිරිසිදු කරන ලද ලිස්ට් එක
+        totalAmount: totalAmount.value,
+        createdAt: DateTime.now(),
+        status: 'Web Sales',
+        smsSent: false,
+        courierStatus: 'Pending',
+        customerName: name,
+        customerAddress: address,
+        custonerPhone2: phone2,
+      );
+
+      batch.set(saleRef, newSale.toMap());
+
+      // Summary Update
+      DocumentReference globalSummaryRef = _db
+          .collection('sales_summary')
+          .doc('overall');
+      batch.set(globalSummaryRef, {
+        'total_revenue': FieldValue.increment(totalAmount.value),
+        'total_orders': FieldValue.increment(1),
+        'last_updated': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // Stock Update
+      for (var item in structuredItems) {
+        String productId = item['id'];
+        String itemName = item['name'];
+        int quantitySold = item['quantity'];
+
+        DocumentReference productRef = _db.collection('stock').doc(productId);
+        batch.update(productRef, {
+          'balance': FieldValue.increment(-quantitySold),
+          'updated_at': FieldValue.serverTimestamp(),
+        });
+
+        DocumentReference transRef = productRef
+            .collection('transactions')
+            .doc();
+        batch.set(transRef, {
+          'quantity': -quantitySold,
+          'type': 'out',
+          'note': 'Web Sales Transaction (Order: ${saleRef.id})',
+          'timestamp': FieldValue.serverTimestamp(),
+          'item_name': itemName,
+        });
+      }
+
+      await batch.commit();
+      selectedItems.clear();
+      calculateTotal();
+      return true;
+    } catch (e) {
+      Get.snackbar(
+        "Error",
+        "Web order failed: $e",
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+      );
+      return false;
+    } finally {
+      isLoading.value = false;
+    }
+  }
 }

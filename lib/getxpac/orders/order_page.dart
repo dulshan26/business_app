@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 import 'package:own/firebase/firestore.dart';
 import 'package:own/getxpac/orders/order_card.dart';
 import 'package:own/getxpac/orders/sales_edit_page.dart';
 import 'package:own/getxpac/sales/sales_model.dart';
+import 'package:own/getxpac/service/invoice.dart';
+import 'package:printing/printing.dart';
 
 class OrderPage extends StatefulWidget {
   const OrderPage({super.key});
@@ -17,16 +21,17 @@ class _OrderPageState extends State<OrderPage>
   late TabController _tabController;
   final FirestoreService _firestoreService = FirestoreService();
 
-  // 🔎 Search සඳහා අවශ්‍ය Variables
+  // 🔎 Search Variables
   final TextEditingController _searchController = TextEditingController();
   final RxString _searchQuery = ''.obs;
 
   final List<_TabConfig> _tabs = const [
-    _TabConfig('All', Icons.all_inbox_rounded, Color(0xFF607D8B)),
     _TabConfig('Pending', Icons.hourglass_top_rounded, Color(0xFFFF9800)),
     _TabConfig('Sent', Icons.local_shipping_rounded, Color(0xFF2196F3)),
     _TabConfig('Cash Collect', Icons.payments_rounded, Color(0xFF4CAF50)),
     _TabConfig('Return', Icons.assignment_return_rounded, Color(0xFFF44336)),
+    _TabConfig('All', Icons.all_inbox_rounded, Color(0xFF607D8B)),
+    _TabConfig('Web Sales', Icons.language_rounded, Colors.purple),
   ];
 
   @override
@@ -38,8 +43,45 @@ class _OrderPageState extends State<OrderPage>
   @override
   void dispose() {
     _tabController.dispose();
-    _searchController.dispose(); // Memory leak නොවීමට මෙතනින් dispose කරන්න
+    _searchController.dispose();
     super.dispose();
+  }
+
+  // 🗓️ Group Orders by Date Category Helper
+  Map<String, List<SalesModel>> _groupOrdersByDate(List<SalesModel> orders) {
+    final Map<String, List<SalesModel>> grouped = {};
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+
+    for (var order in orders) {
+      // Assumes order.createdAt or fallback to order.date (adjust parameter if needed)
+      final DateTime orderDate = order.createdAt;
+
+      String dateHeader;
+      // ignore: dead_code
+      final orderDay = DateTime(orderDate.year, orderDate.month, orderDate.day);
+
+      if (orderDay == today) {
+        dateHeader = 'Today';
+      } else if (orderDay == yesterday) {
+        dateHeader = 'Yesterday';
+      } else if (now.difference(orderDate).inDays < 7) {
+        dateHeader = DateFormat('EEEE').format(orderDate); // e.g. "Monday"
+      } else {
+        dateHeader = DateFormat(
+          'dd MMM yyyy',
+        ).format(orderDate); // e.g. "12 Mar 2026"
+      }
+
+      if (!grouped.containsKey(dateHeader)) {
+        grouped[dateHeader] = [];
+      }
+      grouped[dateHeader]!.add(order);
+    }
+
+    return grouped;
   }
 
   @override
@@ -55,7 +97,6 @@ class _OrderPageState extends State<OrderPage>
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         actions: [
-          // Search Query එකක් තිබ්බොත් Clear බටන් එක පෙන්වන්න
           Obx(
             () => _searchQuery.value.isNotEmpty
                 ? IconButton(
@@ -68,12 +109,11 @@ class _OrderPageState extends State<OrderPage>
                 : const SizedBox.shrink(),
           ),
         ],
-        // TabBar එකට උඩින් Search Bar එක දාන්න PreferredSize Widget එකක් පාවිච්චි කළා
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(110),
           child: Column(
             children: [
-              _buildSearchBar(), // 🔎 Search Bar එක මෙතනට දැම්මා
+              _buildSearchBar(),
               TabBar(
                 controller: _tabController,
                 isScrollable: true,
@@ -96,15 +136,13 @@ class _OrderPageState extends State<OrderPage>
 
           final allOrders = snapshot.data!;
 
-          // 🌟 Obx එක මඟින් User ටයිප් කරන කොටම UI එක වෙනස් කරයි
           return Obx(() {
             final query = _searchQuery.value;
 
-            // 1. මුලින්ම මුළු ලිස්ට් එකම Search query එකට අනුව filter කරනවා
+            // 1. Filter by Search Query
             final searchedOrders = allOrders.where((order) {
               if (query.isEmpty) return true;
 
-              // ඔයාගේ SalesModel එකේ තියෙන parameters අනුව මේවා වෙනස් කරගන්න මල්ලි:
               final customerName = order.customerName?.toLowerCase() ?? '';
               final customerPhone = order.customerPhone;
               final orderId = order.id?.toLowerCase() ?? '';
@@ -114,7 +152,7 @@ class _OrderPageState extends State<OrderPage>
                   orderId.contains(query);
             }).toList();
 
-            // 2. ඊටපස්සේ ඒ filter වුන ලිස්ට් එක Tab එක අනුව බෙදනවා
+            // 2. Tab Filter and List
             return TabBarView(
               controller: _tabController,
               children: _tabs.map((tab) {
@@ -162,7 +200,6 @@ class _OrderPageState extends State<OrderPage>
     return StreamBuilder<List<SalesModel>>(
       stream: _firestoreService.getAllSalesOrders(),
       builder: (context, snapshot) {
-        // 🌟 Tab එකේ උඩ පේන Count එකත් Search එකට අනුව live අප්ඩේට් වෙන්න හැදුවා
         return Obx(() {
           final query = _searchQuery.value;
           if (!snapshot.hasData) return _buildTabChip(tab, 0);
@@ -253,7 +290,7 @@ class _OrderPageState extends State<OrderPage>
     );
   }
 
-  // ── Per-tab list (Responsive Grid & List) ──────────────────────────────────
+  // ── Per-tab list with Grouped Date Headers ──────────────────────────────────
   Widget _buildOrderList(List<SalesModel> orders, _TabConfig tab) {
     if (orders.isEmpty) {
       return Center(
@@ -274,67 +311,90 @@ class _OrderPageState extends State<OrderPage>
     }
 
     final bool showSummary =
-        tab.label == 'Cash Collect' || tab.label == 'Return';
+        tab.label == 'Cash Collect' ||
+        tab.label == 'Return' ||
+        tab.label == 'Web Sales';
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        bool isDesktop = constraints.maxWidth > 600;
+    // Group the orders by date category
+    final groupedOrders = _groupOrdersByDate(orders);
 
-        return Column(
-          children: [
-            if (showSummary) _buildSummaryBanner(orders, tab),
-            Expanded(
-              child: isDesktop
-                  ? GridView.builder(
-                      padding: const EdgeInsets.all(12),
-                      gridDelegate:
-                          const SliverGridDelegateWithMaxCrossAxisExtent(
-                            maxCrossAxisExtent: 500,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 12,
-                            mainAxisExtent: 340,
+    return Column(
+      children: [
+        if (showSummary) _buildSummaryBanner(orders, tab),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.only(top: 8, bottom: 24),
+            itemCount: groupedOrders.keys.length,
+            itemBuilder: (context, groupIndex) {
+              final dateHeader = groupedOrders.keys.elementAt(groupIndex);
+              final groupItems = groupedOrders[dateHeader]!;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 🗓️ Date Section Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                    child: Row(
+                      children: [
+                        Text(
+                          dateHeader,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey.shade700,
+                            letterSpacing: 0.3,
                           ),
-                      itemCount: orders.length,
-                      itemBuilder: (context, index) {
-                        return _buildStatusAwareCard(
-                          orders[index],
-                          tab.label == 'All'
-                              ? _tabs.firstWhere(
-                                  (t) => t.label == orders[index].status,
-                                  orElse: () => tab,
-                                )
-                              : tab,
-                          context,
-                        );
-                      },
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.only(top: 8, bottom: 24),
-                      itemCount: orders.length,
-                      itemBuilder: (context, index) {
-                        return _buildStatusAwareCard(
-                          orders[index],
-                          tab.label == 'All'
-                              ? _tabs.firstWhere(
-                                  (t) => t.label == orders[index].status,
-                                  orElse: () => tab,
-                                )
-                              : tab,
-                          context,
-                        );
-                      },
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Divider(
+                            color: Colors.grey.shade300,
+                            thickness: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${groupItems.length}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade500,
+                          ),
+                        ),
+                      ],
                     ),
-            ),
-          ],
-        );
-      },
+                  ),
+                  // Order Items under this date
+                  ...groupItems.map((order) {
+                    return _buildStatusAwareCard(
+                      order,
+                      tab.label == 'All'
+                          ? _tabs.firstWhere(
+                              (t) => t.label == order.status,
+                              orElse: () => tab,
+                            )
+                          : tab,
+                      context,
+                    );
+                  }),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
-  // ── Summary banner for Cash Collect / Return ────────────────────────────────
+  // ── Summary banner for Cash Collect / Return / Web Sales ────────────────────
   Widget _buildSummaryBanner(List<SalesModel> orders, _TabConfig tab) {
     final total = orders.fold<double>(0, (sum, o) => sum + o.totalAmount);
-    final isCash = tab.label == 'Cash Collect';
+
+    String title = "Total Value";
+    if (tab.label == 'Cash Collect') title = "Total Cash to Collect";
+    if (tab.label == 'Return') title = "Total Return Value";
+    if (tab.label == 'Web Sales') title = "Total Web Sales Revenue";
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
@@ -365,7 +425,7 @@ class _OrderPageState extends State<OrderPage>
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                isCash ? "Total Cash to Collect" : "Total Return Value",
+                title,
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
               Text(
@@ -388,6 +448,7 @@ class _OrderPageState extends State<OrderPage>
     );
   }
 
+  // ── Card with left accent color per status ──────────────────────────────────
   // ── Card with left accent color per status ──────────────────────────────────
   Widget _buildStatusAwareCard(
     SalesModel sales,
@@ -415,6 +476,37 @@ class _OrderPageState extends State<OrderPage>
         order: sales,
         onTap: () => Get.to(() => SalesEditPage(sales: sales)),
         onDelete: () => _firestoreService.deleteOrderShow(sales.id!, context),
+        // 📄 Action to open the Invoice PDF Preview
+        onPdfPressed: () => openInvoicePdfPreview(context, sales),
+      ),
+    );
+  }
+
+  void openInvoicePdfPreview(BuildContext context, SalesModel sales) async {
+    // Load logo from assets if available
+    Uint8List? logoBytes;
+    try {
+      final ByteData bytes = await rootBundle.load('assets/images/logo.png');
+      logoBytes = bytes.buffer.asUint8List();
+    } catch (_) {
+      logoBytes = null; // Falls back to text header
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(title: Text('Invoice #${sales.id ?? ""}')),
+          body: PdfPreview(
+            build: (format) => InvoicePdfService.generateInvoice(
+              sales: sales,
+              logoBytes: logoBytes,
+            ),
+            allowPrinting: true,
+            allowSharing: true,
+            canChangeOrientation: false,
+          ),
+        ),
       ),
     );
   }

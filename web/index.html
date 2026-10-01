@@ -18,33 +18,90 @@
 
   <title>own</title>
   <link rel="manifest" href="manifest.json">
+
+  <!-- Lightweight CSS Loader Styles -->
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #ffffff;
+    }
+    #loading-screen {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      width: 100vw;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 9999;
+      background-color: #ffffff;
+      transition: opacity 0.4s ease;
+    }
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 5px solid #e0e0e0;
+      border-bottom-color: #2196f3;
+      border-radius: 50%;
+      display: inline-block;
+      box-sizing: border-box;
+      animation: rotation 1s linear infinite;
+    }
+    .loading-text {
+      margin-top: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      color: #666666;
+    }
+    @keyframes rotation {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
+  <!-- Instant HTML/CSS Loading View -->
+  <div id="loading-screen">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading Application...</div>
+  </div>
+
   <!-- Firebase SDKs -->
   <script type="module">
-    // Import Firebase SDKs
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
     import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
     import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-    // Your Firebase config (replace with your project's config)
     const firebaseConfig = {
-  apiKey: "AIzaSyCobSWt64hSBtYAVLPtdo_cf9mMZg-XUI4",
-  authDomain: "retail-e879d.firebaseapp.com",
-  projectId: "retail-e879d",
-  storageBucket: "retail-e879d.firebasestorage.app",
-  messagingSenderId: "94688367761",
-  appId: "1:94688367761:web:9d11688ba98663224f5b30"
-};
+      apiKey: "AIzaSyCobSWt64hSBtYAVLPtdo_cf9mMZg-XUI4",
+      authDomain: "retail-e879d.firebaseapp.com",
+      projectId: "retail-e879d",
+      storageBucket: "retail-e879d.firebasestorage.app",
+      messagingSenderId: "94688367761",
+      appId: "1:94688367761:web:9d11688ba98663224f5b30"
+    };
 
-
-    // Initialize Firebase
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
     const auth = getAuth(app);
   </script>
 
-  <!-- Flutter bootstrap -->
+  <!-- Flutter bootstrap with lifecycle hook -->
   <script src="flutter_bootstrap.js" async></script>
+  <script>
+    // Remove the splash screen smoothly as soon as Flutter renders
+    window.addEventListener('flutter-first-frame', function () {
+      const loader = document.getElementById('loading-screen');
+      if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(function() {
+          loader.remove();
+        }, 400);
+      }
+    });
+  </script>
 </body>
 </html>
