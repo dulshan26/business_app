@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:own/getxpac/sales_item/item_controller.dart';
 import 'package:own/getxpac/sales_item/item_edit.dart';
+import 'package:own/getxpac/sales_item/item_model.dart';
 import 'package:own/getxpac/sales_item/stock_add_remove.dart';
 import 'package:own/getxpac/sales_item/one_item_page.dart';
 import 'package:own/utils/loading.dart';
@@ -10,104 +11,6 @@ class StockListPage extends StatelessWidget {
   const StockListPage({super.key});
 
   // 🟢 அලුත් Item එකක් ඇතුළත් කරන Popup Dialog එක
-  void _showAddItemDialog(
-    BuildContext context,
-    StockListController controller,
-  ) {
-    final nameController = TextEditingController();
-    final priceController = TextEditingController();
-    final stockController = TextEditingController();
-    final formKey = GlobalKey<FormState>();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.playlist_add, color: Colors.blue),
-            SizedBox(width: 10),
-            Text(
-              "Add New Product",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: "Item Name",
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) =>
-                    v == null || v.isEmpty ? "Enter item name" : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: priceController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Price (Rs.)",
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => double.tryParse(v ?? '') == null
-                    ? "Enter a valid price"
-                    : null,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: stockController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: "Initial Stock Qty",
-                  border: OutlineInputBorder(),
-                ),
-                validator: (v) => int.tryParse(v ?? '') == null
-                    ? "Enter a valid stock quantity"
-                    : null,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Get.back(),
-            child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.blue.shade800,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: () async {
-              if (formKey.currentState!.validate()) {
-                Get.back();
-                await controller.addItem(
-                  name: nameController.text.trim(),
-                  price: double.parse(priceController.text.trim()),
-                  initialStock: int.parse(stockController.text.trim()),
-                  mainImage: '',
-                  images: [],
-                );
-              }
-            },
-            child: const Text("Add Item"),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _showImagePreview(
     BuildContext context,
     String imageUrl,
@@ -244,7 +147,7 @@ class StockListPage extends StatelessWidget {
         actions: [
           IconButton(
             icon: const Icon(Icons.add_box_rounded, size: 28),
-            onPressed: () => _showAddItemDialog(context, controller),
+            onPressed: () => Get.to(() => const StockEditPage()),
           ),
           const SizedBox(width: 8),
         ],
@@ -313,6 +216,7 @@ class StockListPage extends StatelessWidget {
                   final int balance = product['balance'] ?? 0;
                   final double price = (product['price'] ?? 0).toDouble();
                   final bool isOutOfStock = balance <= 0;
+                  final item = ItemModel.fromMap(product, id: productId);
 
                   // 🌟 0 වෙනි පින්තූරය (Image 0) ආරක්ෂිතව වෙන් කරගන්නා ආකාරය
                   String? imageUrl;
@@ -466,6 +370,8 @@ class StockListPage extends StatelessWidget {
                           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
                           child: Column(
                             children: [
+                              if (item.hasVariants)
+                                _buildVariantStockRows(item),
                               const Divider(height: 1),
                               const SizedBox(height: 8),
                               Row(
@@ -624,6 +530,86 @@ class StockListPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildVariantStockRows(ItemModel item) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Option variants',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+            ),
+          ),
+        ),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+          decoration: BoxDecoration(
+            color: Colors.blueGrey.shade50,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Row(
+            children: [
+              Expanded(flex: 5, child: Text('Option / Variant')),
+              Expanded(
+                flex: 2,
+                child: Text('Stock', textAlign: TextAlign.center),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text('Price', textAlign: TextAlign.right),
+              ),
+            ],
+          ),
+        ),
+        ...item.options.expand(
+          (option) => option.variants.map(
+            (variant) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 5,
+                    child: Text(
+                      '${option.name}: ${variant.name}',
+                      style: const TextStyle(fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 2,
+                    child: Text(
+                      '${variant.stock}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: variant.stock > 0
+                            ? Colors.blueGrey.shade800
+                            : Colors.red.shade700,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      'LKR ${(variant.price ?? item.price).toStringAsFixed(2)}',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

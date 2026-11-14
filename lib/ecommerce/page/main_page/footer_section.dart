@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:own/ecommerce/page/home.dart';
+import 'package:own/ecommerce/page/sales_page.dart';
+import 'package:own/login/main_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class FooterSection extends StatelessWidget {
@@ -24,7 +28,7 @@ class FooterSection extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      color: const Color(0xFF1A1A1A), // Dark modern theme
+      color: const Color(0xFF061126),
       padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 24),
       child: Column(
         children: [
@@ -73,10 +77,16 @@ class FooterSection extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    _footerLink("Home", () {}),
-                    _footerLink("Shop Products", () {}),
-                    _footerLink("Privacy Policy", () {}),
+                    _footerLink("Home", () => Get.off(() => const HomePage())),
+                    _footerLink(
+                      "Shop Products",
+                      () => Get.off(() => const SalesPage()),
+                    ),
+                    _footerLink("Privacy Policy", () {
+                      () => Get.to(() => const MainPage());
+                    }),
                     _footerLink("Terms & Conditions", () {}),
+                    _footerLink("admin", () => Get.to(() => const MainPage())),
                   ],
                 ),
               ),
@@ -189,7 +199,7 @@ class FooterSection extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: Colors.blueAccent, size: 18),
+          Icon(icon, color: const Color(0xFF35D0BA), size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -209,7 +219,7 @@ class FooterSection extends StatelessWidget {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white10,
+        color: const Color(0xFF17345C),
         borderRadius: BorderRadius.circular(20),
       ),
       child: IconButton(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:own/getxpac/sales/sales_model.dart';
+import 'package:own/getxpac/sales_item/item_model.dart';
 import 'package:own/utils/loading.dart';
 
 class SalesEntryPage extends StatelessWidget {
@@ -20,6 +21,39 @@ class SalesEntryPage extends StatelessWidget {
   // Controller eka connect karagannawa
   final controller = Get.put(SalesController());
   final noteController = TextEditingController();
+
+  Future<void> _selectItem(
+    BuildContext context,
+    Map<String, dynamic> stock,
+  ) async {
+    final item = ItemModel.fromMap(stock, id: stock['id'].toString());
+    if (!item.hasVariants) {
+      final availableStock = int.tryParse(stock['balance'].toString()) ?? 0;
+      if (availableStock <= 0) {
+        Get.snackbar('Out of stock', 'This item is currently unavailable.');
+        return;
+      }
+      controller.addItemToCart(
+        stock,
+        unitPrice: item.price,
+        availableStock: availableStock,
+      );
+      return;
+    }
+
+    final selection = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => _SalesVariantPickerDialog(item: item),
+    );
+    if (selection == null) return;
+    controller.addItemToCart(
+      stock,
+      optionName: selection['optionName'] as String,
+      variantName: selection['variantName'] as String,
+      unitPrice: selection['price'] as double,
+      availableStock: selection['stock'] as int,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -82,15 +116,17 @@ class SalesEntryPage extends StatelessWidget {
                 itemCount: controller.filteredStockItems.length,
                 itemBuilder: (context, index) {
                   final stock = controller.filteredStockItems[index];
+                  final item = ItemModel.fromMap(stock);
+                  final hasVariants = item.hasVariants;
                   return ListTile(
                     title: Text(stock['item_name']),
                     subtitle: Text(
-                      "Price: LKR ${stock['price']} | Stock: ${stock['balance']}",
+                      hasVariants
+                          ? "From LKR ${item.startingPrice ?? item.price} | ${item.options.length} option(s)"
+                          : "Price: LKR ${stock['price']} | Stock: ${stock['balance']}",
                     ),
                     trailing: const Icon(Icons.add_circle, color: Colors.green),
-                    onTap: () => controller.addItemToCart(
-                      stock,
-                    ), // Click කලාම Cart එකට යනවා
+                    onTap: () => _selectItem(context, stock),
                   );
                 },
               );
@@ -120,11 +156,13 @@ class SalesEntryPage extends StatelessWidget {
                   return ListTile(
                     dense: true,
                     title: Text(
-                      cartItem['name'],
+                      cartItem['variantName'] == null
+                          ? cartItem['name']
+                          : "${cartItem['name']} • ${cartItem['optionName']}: ${cartItem['variantName']}",
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      "LKR ${cartItem['price']} x ${cartItem['quantity']}",
+                      "LKR ${cartItem['price']} × ${cartItem['quantity']} • Stock: ${cartItem['availableStock']}",
                     ),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -240,6 +278,125 @@ class SalesEntryPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _SalesVariantPickerDialog extends StatefulWidget {
+  final ItemModel item;
+
+  const _SalesVariantPickerDialog({required this.item});
+
+  @override
+  State<_SalesVariantPickerDialog> createState() =>
+      _SalesVariantPickerDialogState();
+}
+
+class _SalesVariantPickerDialogState extends State<_SalesVariantPickerDialog> {
+  String? _optionName;
+  String? _variantName;
+
+  StockOptionModel? get _selectedOption {
+    for (final option in widget.item.options) {
+      if (option.name == _optionName) return option;
+    }
+    return null;
+  }
+
+  ProductOptionVariantModel? get _selectedVariant {
+    for (final variant
+        in _selectedOption?.variants ?? const <ProductOptionVariantModel>[]) {
+      if (variant.name == _variantName) return variant;
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedVariant = _selectedVariant;
+    return AlertDialog(
+      title: Text('Choose ${widget.item.name} option'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<String>(
+            initialValue: _optionName,
+            decoration: const InputDecoration(
+              labelText: 'Option',
+              border: OutlineInputBorder(),
+            ),
+            items: widget.item.options
+                .where((option) => option.variants.isNotEmpty)
+                .map(
+                  (option) => DropdownMenuItem(
+                    value: option.name,
+                    child: Text(option.name),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              setState(() {
+                _optionName = value;
+                _variantName = null;
+              });
+            },
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: ValueKey(_optionName),
+            initialValue: _variantName,
+            decoration: const InputDecoration(
+              labelText: 'Variant',
+              border: OutlineInputBorder(),
+            ),
+            items: _selectedOption?.variants
+                .map(
+                  (variant) => DropdownMenuItem(
+                    value: variant.name,
+                    enabled: variant.stock > 0,
+                    child: Text(
+                      '${variant.name} • ${variant.stock} in stock • LKR ${(variant.price ?? widget.item.price).toStringAsFixed(2)}',
+                    ),
+                  ),
+                )
+                .toList(),
+            onChanged: _selectedOption == null
+                ? null
+                : (value) {
+                    setState(() {
+                      _variantName = value;
+                    });
+                  },
+          ),
+          if (selectedVariant != null) ...[
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Unit price: LKR ${(selectedVariant.price ?? widget.item.price).toStringAsFixed(2)}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: selectedVariant == null || selectedVariant.stock <= 0
+              ? null
+              : () => Navigator.of(context).pop({
+                  'optionName': _optionName!,
+                  'variantName': selectedVariant.name,
+                  'price': selectedVariant.price ?? widget.item.price,
+                  'stock': selectedVariant.stock,
+                }),
+          child: const Text('Add item'),
+        ),
+      ],
     );
   }
 }

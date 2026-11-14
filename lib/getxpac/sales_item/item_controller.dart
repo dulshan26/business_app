@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:own/getxpac/sales_item/item_model.dart';
 
 // ==========================================
 // 📜 STOCK HISTORY CONTROLLER
@@ -121,40 +122,119 @@ class StockListController extends GetxController {
   }
 
   // 🔄 Stock In / Stock Out වෙනස් කරන Function එක
-  Future<void> updateStock({
+  Future<bool> updateStock({
     required String productId,
     required String itemName,
     required int quantity,
-    required int currentBalance,
     required String type,
     String note = "",
+    String? optionName,
+    String? variantName,
   }) async {
     try {
-      int newBalance = type == "out"
-          ? currentBalance - quantity
-          : currentBalance + quantity;
+      if (quantity <= 0 || (type != 'in' && type != 'out')) {
+        throw ArgumentError('Invalid stock transaction.');
+      }
 
-      WriteBatch batch = _db.batch();
-      DocumentReference productRef = _db.collection('stock').doc(productId);
+      final productRef = _db.collection('stock').doc(productId);
       DocumentReference transRef = productRef.collection('transactions').doc();
+      await _db.runTransaction((transaction) async {
+        final productSnapshot = await transaction.get(productRef);
+        final productData = productSnapshot.data();
+        if (productData == null) {
+          throw StateError('The inventory item no longer exists.');
+        }
 
-      // 1. Sub-collection එකට Transaction එක දානවා
-      batch.set(transRef, {
-        'quantity': quantity,
-        'balance_after': newBalance,
-        'type': type,
-        'note': note,
-        'timestamp': FieldValue.serverTimestamp(),
-        'item_name': itemName,
+        final currentBalance = _asInt(
+          productData['balance'] ?? productData['stock'],
+        );
+        var newBalance = type == 'out'
+            ? currentBalance - quantity
+            : currentBalance + quantity;
+        var variantBalanceAfter = newBalance;
+        if (optionName != null || variantName != null) {
+          if (optionName == null || variantName == null) {
+            throw ArgumentError('Both option and variant are required.');
+          }
+          final item = ItemModel.fromMap(productData, id: productId);
+          if (item.options.isEmpty) {
+            throw StateError('This item has no variants to update.');
+          }
+          final options = item.options.map((option) => option.toMap()).toList();
+          var optionFound = false;
+          var variantFound = false;
+          for (final option in options) {
+            if (option['name']?.toString() != optionName) continue;
+            optionFound = true;
+            final rawVariants = option['variants'];
+            if (rawVariants is! Iterable) break;
+            final variants = rawVariants
+                .whereType<Map>()
+                .map((variant) => Map<String, dynamic>.from(variant))
+                .toList();
+            for (final variant in variants) {
+              if (variant['name']?.toString() != variantName) continue;
+              variantFound = true;
+              final currentVariantBalance = _asInt(variant['stock']);
+              if (type == 'out' && quantity > currentVariantBalance) {
+                throw StateError('Not enough stock for $variantName.');
+              }
+              variantBalanceAfter = type == 'out'
+                  ? currentVariantBalance - quantity
+                  : currentVariantBalance + quantity;
+              variant['stock'] = variantBalanceAfter;
+              break;
+            }
+            option['variants'] = variants;
+            break;
+          }
+          if (!optionFound || !variantFound) {
+            throw StateError('The selected option variant was not found.');
+          }
+
+          newBalance = options.fold<int>(0, (total, option) {
+            final variants = option['variants'];
+            if (variants is! Iterable) return total;
+            return total +
+                variants.whereType<Map>().fold<int>(
+                  0,
+                  (optionTotal, variant) =>
+                      optionTotal + _asInt(variant['stock']),
+                );
+          });
+          transaction.update(productRef, {
+            'options': options,
+            'balance': newBalance,
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+        } else {
+          if (type == 'out' && quantity > currentBalance) {
+            throw StateError('Not enough stock available.');
+          }
+          transaction.update(productRef, {
+            'balance': newBalance,
+            'updated_at': FieldValue.serverTimestamp(),
+          });
+        }
+
+        final transactionData = <String, dynamic>{
+          'quantity': quantity,
+          'balance_after': newBalance,
+          'type': type,
+          'note': note,
+          'timestamp': FieldValue.serverTimestamp(),
+          'item_name': itemName,
+        };
+        if (optionName != null && variantName != null) {
+          transactionData.addAll({
+            'option_name': optionName,
+            'variant_name': variantName,
+            'variant_balance_after': variantBalanceAfter,
+          });
+        }
+        transaction.set(transRef, transactionData);
       });
 
-      // 2. ප්‍රධාන Product Document එකේ Balance එක Update කරනවා
-      batch.update(productRef, {
-        'balance': newBalance,
-        'updated_at': FieldValue.serverTimestamp(),
-      });
-
-      await batch.commit();
       Get.snackbar(
         "Success",
         "Stock updated successfully!",
@@ -162,6 +242,7 @@ class StockListController extends GetxController {
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
       );
+      return true;
     } catch (e) {
       Get.snackbar(
         "Error",
@@ -170,16 +251,22 @@ class StockListController extends GetxController {
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
       );
+      return false;
     }
   }
 
   // ➕ Create - අලුත් Item එකක් Inventory එකට එකතු කිරීම
-  Future<void> addItem({
+  Future<bool> addItem({
     required String name,
     required double price,
     required int initialStock,
     required String mainImage,
     required List<String> images,
+    required String description,
+    required String category,
+    required bool isActive,
+    required List<StockOptionModel> options,
+    required List<String> descriptionImages,
   }) async {
     try {
       isLoading.value = true;
@@ -191,10 +278,15 @@ class StockListController extends GetxController {
 
       batch.set(productRef, {
         'item_name': name,
+        'description': description,
+        'description_images': descriptionImages,
+        'category': category,
         'price': price,
         'balance': initialStock,
         'main_image': mainImage,
         'images': images,
+        'isActive': isActive,
+        'options': options.map((option) => option.toMap()).toList(),
         'created_at': FieldValue.serverTimestamp(),
         'updated_at': FieldValue.serverTimestamp(),
       });
@@ -217,6 +309,7 @@ class StockListController extends GetxController {
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
       );
+      return true;
     } catch (e) {
       Get.snackbar(
         "Error",
@@ -225,6 +318,7 @@ class StockListController extends GetxController {
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
       );
+      return false;
     } finally {
       isLoading.value = false;
     }
@@ -254,7 +348,7 @@ class StockListController extends GetxController {
   }
 
   // ✏️ Edit - Item එකක තොරතුරු සහ Transaction History එක Batch Update එකකින් සිදු කිරීම
-  Future<void> editStockItem({
+  Future<bool> editStockItem({
     required String productId,
     required String name,
     required String description,
@@ -264,24 +358,30 @@ class StockListController extends GetxController {
     required String mainImage,
     required List<String> images,
     required bool isActive,
+    required List<StockOptionModel> options,
+    required List<String> descriptionImages,
   }) async {
     try {
       isLoading.value = true;
       await _db.collection('stock').doc(productId).update({
         'item_name': name,
         'description': description,
+        'description_images': descriptionImages,
         'category': category,
         'price': price,
         'balance': balance,
         'main_image': mainImage,
         'images': images,
         'isActive': isActive,
+        'options': options.map((option) => option.toMap()).toList(),
         'updated_at': FieldValue.serverTimestamp(),
       });
 
       Get.snackbar("Success", "Product updated successfully");
+      return true;
     } catch (e) {
       Get.snackbar("Error", e.toString());
+      return false;
     } finally {
       isLoading.value = false;
     }
@@ -292,12 +392,17 @@ class StockListController extends GetxController {
       "".obs; // මුලින්ම කිසිම category එකක් select වෙලා නෑ (Show All)
 
   void changeCategory(String category) {
-    if (selectedCategory.value == category) {
+    if (category.toLowerCase() == 'all' || selectedCategory.value == category) {
       // 🔄 දෙවැනි පාර ක්ලික් කළොත් deselect කරලා clear කරනවා (Show All)
       selectedCategory.value = "";
     } else {
       // 🎯 පළමු පාර ක්ලික් කළොත් ඒ category එක select කරනවා
       selectedCategory.value = category;
     }
+  }
+
+  int _asInt(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
   }
 }

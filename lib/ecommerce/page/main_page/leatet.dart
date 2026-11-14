@@ -15,7 +15,12 @@ class LatestProducts extends GetView<StockListController> {
       if (controller.isLoading.value) {
         return const Padding(
           padding: EdgeInsets.symmetric(vertical: 80),
-          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          child: Center(
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: Color(0xFF35D0BA),
+            ),
+          ),
         );
       }
 
@@ -62,12 +67,15 @@ class LatestProducts extends GetView<StockListController> {
                 Icon(
                   Icons.inventory_2_outlined,
                   size: 40,
-                  color: Colors.grey.shade300,
+                  color: const Color(0xFF7890B2),
                 ),
                 const SizedBox(height: 12),
                 Text(
                   "No items available in this category",
-                  style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                  style: const TextStyle(
+                    color: Color(0xFFB7C7DE),
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
@@ -159,6 +167,8 @@ class _ProductCardState extends State<_ProductCard> {
     final balance = product['balance'] ?? 0;
     final isOutOfStock = balance == 0;
     final isLowStock = balance is num && balance > 0 && balance <= 5;
+    final options = product['options'];
+    final hasOptions = options is Iterable && options.isNotEmpty;
 
     final card = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -173,7 +183,7 @@ class _ProductCardState extends State<_ProductCard> {
               child: Container(
                 width: double.infinity,
                 decoration: BoxDecoration(
-                  color: const Color(0xFFF6F6F8),
+                  color: const Color(0xFF102543),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: widget.isDesktop && _hovering
                       ? [
@@ -195,12 +205,12 @@ class _ProductCardState extends State<_ProductCard> {
                             fit: BoxFit.cover,
                             loadingBuilder: (context, child, progress) {
                               if (progress == null) return child;
-                              return Container(color: const Color(0xFFF6F6F8));
+                              return Container(color: const Color(0xFF17345C));
                             },
                             errorBuilder: (_, _, _) => Center(
                               child: Icon(
                                 Icons.broken_image_outlined,
-                                color: Colors.grey.shade300,
+                                color: const Color(0xFF7890B2),
                                 size: 28,
                               ),
                             ),
@@ -208,7 +218,7 @@ class _ProductCardState extends State<_ProductCard> {
                         : Center(
                             child: Icon(
                               Icons.inventory_2_outlined,
-                              color: Colors.grey.shade300,
+                              color: const Color(0xFF7890B2),
                               size: 32,
                             ),
                           ),
@@ -236,7 +246,9 @@ class _ProductCardState extends State<_ProductCard> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.75),
+                            color: const Color(
+                              0xFF07152F,
+                            ).withValues(alpha: 0.9),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: Text(
@@ -257,16 +269,26 @@ class _ProductCardState extends State<_ProductCard> {
                       child: GestureDetector(
                         onTap: isOutOfStock
                             ? null
-                            : () => cartController.addToCart(product),
+                            : () {
+                                if (hasOptions) {
+                                  Get.to(() => OneItemPage(product: product));
+                                } else {
+                                  cartController.addToCart(product);
+                                }
+                              },
                         child: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: isOutOfStock ? Colors.grey : Colors.black,
+                            color: isOutOfStock
+                                ? Colors.grey
+                                : const Color(0xFF35D0BA),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(
+                          child: Icon(
                             Icons.add_shopping_cart_outlined,
-                            color: Colors.white,
+                            color: isOutOfStock
+                                ? Colors.white
+                                : const Color(0xFF07152F),
                             size: 16,
                           ),
                         ),
@@ -288,7 +310,7 @@ class _ProductCardState extends State<_ProductCard> {
           style: TextStyle(
             fontWeight: FontWeight.w500,
             fontSize: widget.isDesktop ? 14.5 : 13.5,
-            color: const Color(0xFF1A1A1A),
+            color: Colors.white,
           ),
         ),
         const SizedBox(height: 3),
@@ -297,7 +319,7 @@ class _ProductCardState extends State<_ProductCard> {
           style: TextStyle(
             fontWeight: FontWeight.w700,
             fontSize: widget.isDesktop ? 15 : 14,
-            color: const Color(0xFF1A1A1A),
+            color: const Color(0xFF35D0BA),
           ),
         ),
       ],

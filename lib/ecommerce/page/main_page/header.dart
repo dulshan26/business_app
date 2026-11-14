@@ -3,80 +3,83 @@ import 'package:get/get.dart'; // 💡 පරණ get_core සහ navigation impo
 import 'package:own/ecommerce/cart/cart_item_page.dart';
 import 'package:own/ecommerce/controller/cart_controller.dart';
 import 'package:own/ecommerce/page/home.dart';
+import 'package:own/ecommerce/page/sales_page.dart';
 import 'package:own/login/main_page.dart';
 
 class HeaderSection extends StatelessWidget {
-  const HeaderSection({super.key});
+  final String activePage;
+
+  const HeaderSection({super.key, this.activePage = 'home'});
 
   @override
   Widget build(BuildContext context) {
-    // 🛒 CartController එක find කරගන්නවා (කලින් පිටුවේදී put කරලා තියෙන නිසා මෙතන find කරන්න පුළුවන්)
-    final CartController cartController = Get.put(CartController());
+    final CartController cartController = Get.isRegistered<CartController>()
+        ? Get.find<CartController>()
+        : Get.put(CartController(), permanent: true);
 
     return Container(
-      height: 80,
-      padding: const EdgeInsets.symmetric(horizontal: 30),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          // 🏷️ Logo and Brand Name
-          Row(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      decoration: const BoxDecoration(
+        color: Color(0xFF07152F),
+        border: Border(bottom: BorderSide(color: Color(0xFF1E3558))),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 520;
+          return Row(
             children: [
               Image.asset(
                 'asset/logo.jpg',
-                height: 40,
-                width: 40,
+                height: compact ? 34 : 40,
+                width: compact ? 34 : 40,
                 fit: BoxFit.contain,
               ),
               const SizedBox(width: 10),
-              const Text(
-                'techtonic.lk',
-                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              Expanded(
+                child: Text(
+                  'techtonic.lk',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: compact ? 17 : 22,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.4,
+                  ),
+                ),
               ),
-            ],
-          ),
-
-          // 🧭 Navigation Items & Cart Icon
-          Row(
-            children: [
-              TextButton(
-                onPressed: () {
-                  Get.to(() => const HomePage());
-                },
-                child: const Text('Home'),
+              _navButton(
+                label: 'Home',
+                isActive: activePage == 'home',
+                onPressed: () => Get.off(() => const HomePage()),
+                compact: compact,
               ),
-              const SizedBox(width: 20),
-              TextButton(
-                onPressed: () {
-                  Get.to(() => const MainPage());
-                },
-                child: const Text('admin'),
+              _navButton(
+                label: 'Shop',
+                isActive: activePage == 'shop',
+                onPressed: () => Get.off(() => const SalesPage()),
+                compact: compact,
               ),
-              const SizedBox(width: 20),
-
-              // ==========================================
-              // 🛒 REAVTIVE SHOPPING CART ICON WITH BADGE
-              // ==========================================
-              Obx(() {
-                return Stack(
-                  alignment: Alignment.center,
+              Obx(
+                () => Stack(
+                  clipBehavior: Clip.none,
                   children: [
                     IconButton(
-                      icon: const Icon(Icons.shopping_bag_outlined, size: 26),
-                      onPressed: () {
-                        // Cart පිටුවට (CheckoutPage) navigate වෙනවා
-                        Get.to(() => CartView());
-                      },
+                      tooltip: 'Shopping cart',
+                      onPressed: () => Get.to(() => CartView()),
+                      icon: const Icon(
+                        Icons.shopping_bag_outlined,
+                        color: Colors.white,
+                      ),
                     ),
-                    // Cart එක ඇතුළේ items තියෙනවා නම් විතරක් රතු පාට Badge එක පෙන්වනවා
                     if (cartController.totalItemCount > 0)
                       Positioned(
-                        right: 4,
-                        top: 4,
+                        right: 3,
+                        top: 2,
                         child: Container(
                           padding: const EdgeInsets.all(4),
                           decoration: const BoxDecoration(
-                            color: Colors.red,
+                            color: Color(0xFF35D0BA),
                             shape: BoxShape.circle,
                           ),
                           constraints: const BoxConstraints(
@@ -86,7 +89,7 @@ class HeaderSection extends StatelessWidget {
                           child: Text(
                             '${cartController.totalItemCount}',
                             style: const TextStyle(
-                              color: Colors.white,
+                              color: Color(0xFF07152F),
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                             ),
@@ -95,11 +98,44 @@ class HeaderSection extends StatelessWidget {
                         ),
                       ),
                   ],
-                );
-              }),
+                ),
+              ),
+              if (!compact)
+                PopupMenuButton<String>(
+                  tooltip: 'More',
+                  icon: const Icon(Icons.more_vert, color: Colors.white70),
+                  onSelected: (value) {
+                    if (value == 'admin') Get.to(() => const MainPage());
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'admin', child: Text('Admin')),
+                  ],
+                ),
             ],
-          ),
-        ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _navButton({
+    required String label,
+    required bool isActive,
+    required VoidCallback onPressed,
+    required bool compact,
+  }) {
+    return TextButton(
+      onPressed: onPressed,
+      style: TextButton.styleFrom(
+        foregroundColor: isActive ? const Color(0xFF35D0BA) : Colors.white70,
+        padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 14),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+          fontSize: compact ? 13 : 14,
+        ),
       ),
     );
   }

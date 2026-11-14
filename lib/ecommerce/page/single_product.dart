@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:own/ecommerce/cart/cart_item_page.dart';
 import 'package:own/ecommerce/controller/cart_controller.dart';
+import 'package:own/ecommerce/models/product_model.dart';
+import 'package:own/getxpac/sales_item/product_Option_Handler/product_variant_model.dart';
 import 'package:own/utils/whatsapp.dart';
 
 class OneItemPage extends StatefulWidget {
@@ -23,6 +25,9 @@ class _OneItemPageState extends State<OneItemPage> {
 
   int _currentImageIndex = 0;
   int _quantity = 1;
+  String? _selectedOptionName;
+  String? _selectedOptionValue;
+  String? _selectedVariantId;
 
   @override
   void dispose() {
@@ -52,13 +57,28 @@ class _OneItemPageState extends State<OneItemPage> {
     }
 
     final String itemName = product['item_name'] ?? 'Unknown Item';
-    final double price = (product['price'] ?? 0).toDouble();
-    final int balance = product['balance'] ?? 0;
+    final String productId = (product['id'] ?? itemName).toString();
+    final productModel = ProductModel.fromMap(product, id: productId);
+    final selectedVariant = _matchingSelectedVariant(productModel);
+    final bool hasVariants = productModel.hasVariants;
+    final double price =
+        selectedVariant?.price ??
+        (hasVariants ? _startingPrice(productModel) : null) ??
+        productModel.price;
+    final int balance = hasVariants
+        ? (selectedVariant?.stock ?? productModel.totalVariantStock)
+        : productModel.stock;
     final String description =
         product['description'] ?? 'No description available for this product.';
     final String category = product['category'] ?? 'General';
-    final bool isOutOfStock = balance <= 0;
-    final String productId = (product['id'] ?? product['item_name']).toString();
+    final bool isOutOfStock = hasVariants
+        ? productModel.nestedOptions.isNotEmpty
+              ? !productModel.nestedOptions.any(
+                  (option) =>
+                      option.variants.any((variant) => variant.stock > 0),
+                )
+              : !productModel.activeVariants.any((variant) => variant.stock > 0)
+        : balance <= 0;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -135,6 +155,9 @@ class _OneItemPageState extends State<OneItemPage> {
                         description,
                         productId,
                         product,
+                        productModel,
+                        selectedVariant,
+                        hasVariants,
                       )
                     : _buildMobileLayout(
                         imageUrls,
@@ -146,6 +169,9 @@ class _OneItemPageState extends State<OneItemPage> {
                         description,
                         productId,
                         product,
+                        productModel,
+                        selectedVariant,
+                        hasVariants,
                       ),
               ),
             ],
@@ -172,7 +198,16 @@ class _OneItemPageState extends State<OneItemPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildActionButtons(itemName, product, isOutOfStock, price),
+              _buildActionButtons(
+                itemName,
+                product,
+                productId,
+                isOutOfStock,
+                price,
+                balance,
+                selectedVariant,
+                hasVariants,
+              ),
               const SizedBox(height: 6),
               _buildFooterBranding(),
             ],
@@ -193,6 +228,9 @@ class _OneItemPageState extends State<OneItemPage> {
     String description,
     String productId,
     Map<String, dynamic> product,
+    ProductModel productModel,
+    ProductVariantModel? selectedVariant,
+    bool hasVariants,
   ) {
     return Center(
       child: Container(
@@ -228,14 +266,12 @@ class _OneItemPageState extends State<OneItemPage> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      "LKR ${price.toStringAsFixed(2)}",
-                      style: const TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: primaryColor,
-                      ),
-                    ),
+                    if (!hasVariants || selectedVariant != null)
+                      _buildPrice(price, false),
+                    if (hasVariants) ...[
+                      const SizedBox(height: 20),
+                      _buildOptionSelectors(productModel),
+                    ],
                     const SizedBox(height: 20),
                     Divider(color: Colors.grey.shade200),
                     const SizedBox(height: 16),
@@ -247,15 +283,9 @@ class _OneItemPageState extends State<OneItemPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      description,
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.grey.shade700,
-                        height: 1.6,
-                      ),
-                    ),
-                    if (!isOutOfStock) ...[
+                    _buildDescription(description, product),
+                    if (!isOutOfStock &&
+                        (!hasVariants || selectedVariant != null)) ...[
                       const SizedBox(height: 20),
                       Divider(color: Colors.grey.shade200),
                       const SizedBox(height: 16),
@@ -271,7 +301,7 @@ class _OneItemPageState extends State<OneItemPage> {
                           ),
                           _buildQuantitySelector(
                             balance,
-                            productId,
+                            _cartKey(productId, selectedVariant),
                             product,
                             price,
                           ),
@@ -299,6 +329,9 @@ class _OneItemPageState extends State<OneItemPage> {
     String description,
     String productId,
     Map<String, dynamic> product,
+    ProductModel productModel,
+    ProductVariantModel? selectedVariant,
+    bool hasVariants,
   ) {
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -322,14 +355,12 @@ class _OneItemPageState extends State<OneItemPage> {
             ),
           ),
           const SizedBox(height: 10),
-          Text(
-            "LKR ${price.toStringAsFixed(2)}",
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1B1B1F),
-            ),
-          ),
+          if (!hasVariants || selectedVariant != null)
+            _buildPrice(price, false),
+          if (hasVariants) ...[
+            const SizedBox(height: 20),
+            _buildOptionSelectors(productModel),
+          ],
           const SizedBox(height: 20),
           Divider(color: Colors.grey.shade200, height: 1),
           const SizedBox(height: 16),
@@ -338,15 +369,8 @@ class _OneItemPageState extends State<OneItemPage> {
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          Text(
-            description,
-            style: TextStyle(
-              fontSize: 14.5,
-              color: Colors.grey.shade700,
-              height: 1.6,
-            ),
-          ),
-          if (!isOutOfStock) ...[
+          _buildDescription(description, product),
+          if (!isOutOfStock && (!hasVariants || selectedVariant != null)) ...[
             const SizedBox(height: 20),
             Divider(color: Colors.grey.shade200, height: 1),
             const SizedBox(height: 16),
@@ -357,7 +381,12 @@ class _OneItemPageState extends State<OneItemPage> {
                   "Quantity",
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
-                _buildQuantitySelector(balance, productId, product, price),
+                _buildQuantitySelector(
+                  balance,
+                  _cartKey(productId, selectedVariant),
+                  product,
+                  price,
+                ),
               ],
             ),
           ],
@@ -425,11 +454,71 @@ class _OneItemPageState extends State<OneItemPage> {
     );
   }
 
+  Widget _buildDescription(String description, Map<String, dynamic> product) {
+    final rawImages = product['description_images'];
+    final descriptionImages = rawImages is Iterable
+        ? rawImages
+              .where((image) => image != null)
+              .map((image) => image.toString())
+              .where((image) => image.isNotEmpty)
+              .toList()
+        : <String>[];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (description.trim().isNotEmpty)
+          Text(
+            description,
+            style: TextStyle(
+              fontSize: 15,
+              color: Colors.grey.shade700,
+              height: 1.6,
+            ),
+          ),
+        ...descriptionImages.map(
+          (imageUrl) => Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: AspectRatio(
+                aspectRatio: 16 / 10,
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) => Container(
+                    color: Colors.grey.shade100,
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.broken_image_outlined,
+                      color: Colors.grey,
+                      size: 36,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildActionButtons(
     String itemName,
     Map<String, dynamic> product,
+    String productId,
     bool isOutOfStock,
     double price,
+    int balance,
+    ProductVariantModel? selectedVariant,
+    bool hasVariants,
   ) {
     if (isOutOfStock) {
       return Container(
@@ -450,13 +539,35 @@ class _OneItemPageState extends State<OneItemPage> {
       );
     }
 
+    if (hasVariants && selectedVariant == null) {
+      return Container(
+        height: 50,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: const Text(
+          "Select options to continue",
+          style: TextStyle(
+            color: Colors.black54,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+      );
+    }
+
     return Row(
       children: [
         GestureDetector(
           onTap: () async {
+            final variantDescription = selectedVariant == null
+                ? ''
+                : ' (${selectedVariant.attributes.entries.map((entry) => '${entry.key}: ${entry.value}').join(', ')})';
             await WhatsAppService.openWhatsAppChat(
               message:
-                  "Hello Techtonic. I would like to inquire about this product: $itemName (Qty: $_quantity)",
+                  "Hello Techtonic. I would like to inquire about this product: $itemName$variantDescription (Qty: $_quantity)",
             );
           },
           child: Container(
@@ -488,16 +599,13 @@ class _OneItemPageState extends State<OneItemPage> {
                 ),
               ),
               onPressed: () {
-                final productWithQty = Map<String, dynamic>.from(product);
-                productWithQty['quantity'] = _quantity;
-                productWithQty['max_balance'] = product['balance'];
-                productWithQty['price'] = price;
-
-                cartController.addToCart(productWithQty);
-
-                setState(() {
-                  _quantity = 1;
-                });
+                _addSelectedProductToCart(
+                  product,
+                  productId,
+                  price,
+                  balance,
+                  selectedVariant,
+                );
 
                 Get.snackbar(
                   "Success",
@@ -538,16 +646,13 @@ class _OneItemPageState extends State<OneItemPage> {
                 elevation: 0,
               ),
               onPressed: () {
-                final productWithQty = Map<String, dynamic>.from(product);
-                productWithQty['quantity'] = _quantity;
-                productWithQty['max_balance'] = product['balance'];
-                productWithQty['price'] = price;
-
-                cartController.addToCart(productWithQty);
-
-                setState(() {
-                  _quantity = 1;
-                });
+                _addSelectedProductToCart(
+                  product,
+                  productId,
+                  price,
+                  balance,
+                  selectedVariant,
+                );
 
                 Get.to(() => CartView());
               },
@@ -564,6 +669,188 @@ class _OneItemPageState extends State<OneItemPage> {
         ),
       ],
     );
+  }
+
+  ProductVariantModel? _matchingSelectedVariant(ProductModel product) {
+    if (!product.hasVariants) {
+      return null;
+    }
+
+    if (product.nestedOptions.isNotEmpty) {
+      final selectedOptionName = _selectedOptionName;
+      final selectedOptionValue = _selectedOptionValue;
+      if (selectedOptionName == null || selectedOptionValue == null) {
+        return null;
+      }
+
+      for (final option in product.nestedOptions) {
+        if (option.name != selectedOptionName) continue;
+        for (final choice in option.variants) {
+          if (choice.name == selectedOptionValue && choice.stock > 0) {
+            return ProductVariantModel(
+              id: '$selectedOptionName::$selectedOptionValue',
+              attributes: {selectedOptionName: selectedOptionValue},
+              sku: '',
+              price: choice.price ?? product.price,
+              stock: choice.stock,
+              isActive: true,
+            );
+          }
+        }
+      }
+      return null;
+    }
+
+    final selectedVariantId = _selectedVariantId;
+    if (selectedVariantId == null) return null;
+    for (final variant in product.activeVariants) {
+      if (variant.id == selectedVariantId && variant.stock > 0) return variant;
+    }
+
+    return null;
+  }
+
+  double? _startingPrice(ProductModel product) {
+    final availablePrices = product.activeVariants
+        .where((variant) => variant.stock > 0)
+        .map((variant) => variant.price)
+        .toList();
+    if (availablePrices.isEmpty) return null;
+    return availablePrices.reduce((first, next) => first < next ? first : next);
+  }
+
+  Widget _buildOptionSelectors(ProductModel product) {
+    if (product.nestedOptions.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Choose one variant',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: product.activeVariants.map((variant) {
+              final label = variant.attributes.entries
+                  .map((entry) => '${entry.key}: ${entry.value}')
+                  .join(', ');
+              final isSelected = _selectedVariantId == variant.id;
+              return ChoiceChip(
+                label: Text('$label · LKR ${variant.price.toStringAsFixed(2)}'),
+                selected: isSelected,
+                onSelected: variant.stock <= 0
+                    ? null
+                    : (_) {
+                        setState(() {
+                          _selectedVariantId = variant.id;
+                          _selectedOptionName = null;
+                          _selectedOptionValue = null;
+                          _quantity = 1;
+                        });
+                      },
+              );
+            }).toList(),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Choose one option',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        ...product.nestedOptions.map((option) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  option.name,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: option.variants.map((choice) {
+                    final isSelected =
+                        _selectedOptionName == option.name &&
+                        _selectedOptionValue == choice.name;
+                    final choicePrice = choice.price ?? product.price;
+                    return ChoiceChip(
+                      label: Text(
+                        '${choice.name} · LKR ${choicePrice.toStringAsFixed(2)}',
+                      ),
+                      selected: isSelected,
+                      onSelected: choice.stock <= 0
+                          ? null
+                          : (_) {
+                              setState(() {
+                                _selectedOptionName = option.name;
+                                _selectedOptionValue = choice.name;
+                                _selectedVariantId = null;
+                                _quantity = 1;
+                              });
+                            },
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          );
+        }),
+        if (_selectedOptionName == null)
+          Text(
+            'Select one option to see its price.',
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPrice(double price, bool showStartingPrice) {
+    return Text(
+      '${showStartingPrice ? 'From ' : ''}LKR ${price.toStringAsFixed(2)}',
+      style: const TextStyle(
+        fontSize: 26,
+        fontWeight: FontWeight.bold,
+        color: primaryColor,
+      ),
+    );
+  }
+
+  String _cartKey(String productId, ProductVariantModel? variant) {
+    return variant == null ? productId : '$productId::${variant.id}';
+  }
+
+  void _addSelectedProductToCart(
+    Map<String, dynamic> product,
+    String productId,
+    double price,
+    int balance,
+    ProductVariantModel? variant,
+  ) {
+    final cartKey = _cartKey(productId, variant);
+    final productWithQty = Map<String, dynamic>.from(product)
+      ..['productId'] = productId
+      ..['id'] = cartKey
+      ..['quantity'] = _quantity
+      ..['max_balance'] = balance
+      ..['balance'] = balance
+      ..['price'] = price
+      ..['variantId'] = variant?.id ?? 'default'
+      ..['selectedAttributes'] = variant?.attributes ?? <String, String>{}
+      ..['sku'] = variant?.sku ?? '';
+
+    cartController.addToCart(productWithQty);
+    setState(() => _quantity = 1);
   }
 
   Widget _circleIconButton({

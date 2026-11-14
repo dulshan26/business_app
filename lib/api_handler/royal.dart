@@ -1,28 +1,100 @@
 import 'dart:convert';
+
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
 class CurfoxService {
-  Future<String?> getCurrentStatus(String waybill) async {
-    final response = await http.post(
-      Uri.parse("https://v1.api.curfox.com/api/public/order/tracking-info"),
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "X-tenant": "royalexpress",
-        "Authorization":
-            "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJhdWQiOiIxIiwianRpIjoiYjFiNDk3OWM1YjEyNjEwNjUxMGFhZDMyMDQ0MzBiMWE0NWYyZTFiMzAzOTIzMTQ3ZjdjM2YyNWEzMGZkMDU0MzdhZWZjNmJiOTVkZWI2OTEiLCJpYXQiOjE3NzI3MzU4MzMuMjM2NDYzLCJuYmYiOjE3NzI3MzU4MzMuMjM2NDY1LCJleHAiOjQ5Mjg0MDk0MzMuMjIyMzE0LCJzdWIiOiI0Njc0Iiwic2NvcGVzIjpbXX0.jVbxQXE8AOGvYuWPQmDGA7VyYvPyw73AnyiCpGgdd0XD7GQCtMj5HLn0YNADASZwWOxRxK9J92OB0CW3KD_ZUtku7VYIbb8SYKOYDzBNrdt8EfiM7cKMf8vWaD22jnwi33_TEEdWzQxuI5HMqkq0AiKOm93lKgt94SGmeSl_xlWORKBENB4qvawCiQhRgluMnyxInC7mmbPGgHY1Mx_4IZ5nEXto3C6wrlLdfPJNTlWnJPALeHKiNPRLD6kHS0-Mo_wotlddLRuKSfj19kxkazfBm-cuH8cJj76pFCuVKbQCWzC-ok7gK2-ZwO3nvEq9VnEQrG62bxkgFe8orEZIfm3Saw99sbUr7EwoHOvMircz4FMHm-ls5c8VqUpy81xn8TyYeZ6mTyZk0oJ0mVso_JbN5wU6hmKmxX-amhA2UTQ1f20Ic61JVskkmZjkmDmdBQBU2yribDqzD06_SH3I7n8KueHYNXOElHo-D1Gp2wU05zTdROMurfegGzTvCeR8v6lAaDygLXyG2quK6RF0LN_kwXat6JqRCAuyedHfzts0TEe1Yps8LY1LfyW4PtcFaZcUoLPjQwsDcM6yE0237I1qDMNhobp_qB_3V1xkenN7sPkLn47iRodN7-PoFMzG3xzffZvm4tVJBRcKuvxgTSCDf2GkJZSbz20RRv7kDZo",
-      },
-      body: jsonEncode({"waybill_number": waybill}),
-    );
+  static const String _defaultApiBase =
+      'https://v1.api.curfox.com/api/public/merchant';
 
-    if (response.statusCode == 200) {
-      var data = jsonDecode(response.body);
-
-      var timeline = data["data"]["timeline"];
-
-      return timeline[0]["status"]["name"];
+  static String get apiBase {
+    final configuredBase = dotenv.env['CURFOX_BASE_URL']?.trim();
+    if (configuredBase == null || configuredBase.isEmpty) {
+      return _defaultApiBase;
     }
 
-    return null;
+    final uri = Uri.tryParse(configuredBase);
+    if (uri == null ||
+        uri.scheme != 'https' ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty) {
+      throw StateError('CURFOX_BASE_URL must be a valid HTTPS URL.');
+    }
+
+    var path = uri.path.replaceFirst(RegExp(r'/+$'), '');
+    if (path.isEmpty) {
+      path = '/api/public/merchant';
+    } else if (path.endsWith('/api/public')) {
+      path = '$path/merchant';
+    }
+    return uri.replace(path: path, query: null, fragment: null).toString();
+  }
+
+  static String get tenantId {
+    final tenant = dotenv.env['CURFOX_TENANT_ID']?.trim();
+    if (tenant == null || tenant.isEmpty) {
+      throw StateError('CURFOX_TENANT_ID is missing from .env.');
+    }
+    return tenant;
+  }
+
+  static String get authToken {
+    final token = dotenv.env['CURFOX_AUTH_TOKEN']?.trim();
+    if (token == null || token.isEmpty) {
+      throw StateError('CURFOX_AUTH_TOKEN is missing from .env.');
+    }
+    return _withoutBearerPrefix(token);
+  }
+
+  static Map<String, String> headers({String? token, String? tenant}) {
+    final normalizedToken = _withoutBearerPrefix(token ?? authToken);
+    final normalizedTenant = (tenant ?? tenantId).trim();
+    if (normalizedToken.isEmpty || normalizedTenant.isEmpty) {
+      throw StateError('Curfox authentication configuration is incomplete.');
+    }
+    return {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json',
+      'X-tenant': normalizedTenant,
+      'Authorization': 'Bearer $normalizedToken',
+    };
+  }
+
+  static String _withoutBearerPrefix(String token) {
+    return token.trim().replaceFirst(
+      RegExp(r'^Bearer\s+', caseSensitive: false),
+      '',
+    );
+  }
+
+  Future<String?> getCurrentStatus(String waybill) async {
+    final trackingUri = Uri.parse(
+      '${apiBase.replaceFirst('/merchant', '')}/order/tracking-info',
+    );
+    final response = await http.post(
+      trackingUri,
+      headers: headers(),
+      body: jsonEncode({'waybill_number': waybill}),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Curfox tracking failed (${response.statusCode}): ${response.body}',
+      );
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map ||
+        decoded['data'] is! Map ||
+        (decoded['data'] as Map)['timeline'] is! List) {
+      throw const FormatException('Curfox returned an invalid tracking response.');
+    }
+    final timeline = (decoded['data'] as Map)['timeline'] as List;
+    if (timeline.isEmpty ||
+        timeline.first is! Map ||
+        (timeline.first as Map)['status'] is! Map) {
+      return null;
+    }
+    return ((timeline.first as Map)['status'] as Map)['name']?.toString();
   }
 }

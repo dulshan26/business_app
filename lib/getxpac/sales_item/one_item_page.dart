@@ -102,6 +102,17 @@ class StockHistoryPage extends StatelessWidget {
                               fontSize: 15,
                             ),
                           ),
+                          if (trans['variant_name'] != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              '${trans['option_name']}: ${trans['variant_name']}',
+                              style: TextStyle(
+                                color: Colors.blueGrey.shade700,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
                           const SizedBox(height: 4),
                           Text(
                             trans['note'] != ""
@@ -138,12 +149,22 @@ class StockHistoryPage extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          "Bal: ${trans['balance_after']}",
+                          trans['variant_name'] != null
+                              ? "Variant: ${trans['variant_balance_after']}"
+                              : "Bal: ${trans['balance_after']}",
                           style: const TextStyle(
                             fontSize: 12,
                             color: Colors.blueGrey,
                           ),
                         ),
+                        if (trans['variant_name'] != null)
+                          Text(
+                            "Item: ${trans['balance_after']}",
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
                       ],
                     ),
                   ],

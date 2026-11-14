@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:own/getxpac/sales_item/item_controller.dart';
+import 'package:own/getxpac/sales_item/item_model.dart';
 
-class StockActionDialog extends StatelessWidget {
+class StockActionDialog extends StatefulWidget {
   final Map<String, dynamic> product;
-  final String type; // "in" හෝ "out"
+  final String type;
 
   const StockActionDialog({
     super.key,
@@ -13,74 +14,189 @@ class StockActionDialog extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final StockListController controller = Get.find<StockListController>();
-    final TextEditingController qtyController = TextEditingController();
-    final TextEditingController noteController = TextEditingController();
-    final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+  State<StockActionDialog> createState() => _StockActionDialogState();
+}
 
-    final bool isIn = type == 'in';
-    final Color themeColor = isIn ? Colors.green.shade700 : Colors.red.shade700;
+class _StockActionDialogState extends State<StockActionDialog> {
+  final TextEditingController _quantityController = TextEditingController();
+  final TextEditingController _noteController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  String? _selectedOptionName;
+  String? _selectedVariantName;
+  bool _isSaving = false;
+
+  ItemModel get _item => ItemModel.fromMap(widget.product);
+  bool get _isIn => widget.type == 'in';
+  bool get _hasVariants => _item.options.any((option) => option.variants.isNotEmpty);
+
+  int? get _selectedVariantStock {
+    if (_selectedOptionName == null || _selectedVariantName == null) {
+      return null;
+    }
+    for (final option in _item.options) {
+      if (option.name != _selectedOptionName) continue;
+      for (final variant in option.variants) {
+        if (variant.name == _selectedVariantName) return variant.stock;
+      }
+    }
+    return null;
+  }
+
+  int get _currentBalance =>
+      _hasVariants ? (_selectedVariantStock ?? 0) : _item.stock;
+
+  @override
+  void dispose() {
+    _quantityController.dispose();
+    _noteController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isSaving = true;
+    });
+    final success = await Get.find<StockListController>().updateStock(
+      productId: widget.product['id'].toString(),
+      itemName: widget.product['item_name']?.toString() ?? _item.name,
+      quantity: int.parse(_quantityController.text.trim()),
+      type: widget.type,
+      note: _noteController.text.trim(),
+      optionName: _selectedOptionName,
+      variantName: _selectedVariantName,
+    );
+    if (!mounted) return;
+    if (success) Get.back();
+    setState(() {
+      _isSaving = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final themeColor = _isIn ? Colors.green.shade700 : Colors.red.shade700;
+    final selectedOption = _item.options
+        .where((option) => option.name == _selectedOptionName)
+        .firstOrNull;
 
     return AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Row(
         children: [
           Icon(
-            isIn ? Icons.add_circle_outline : Icons.remove_circle_outline,
+            _isIn ? Icons.add_circle_outline : Icons.remove_circle_outline,
             color: themeColor,
           ),
           const SizedBox(width: 10),
           Text(
-            isIn ? "Stock In (Restock)" : "Stock Out (Sale)",
+            _isIn ? 'Stock In (Restock)' : 'Stock Out (Sale)',
             style: TextStyle(color: themeColor, fontSize: 18),
           ),
         ],
       ),
       content: Form(
-        key: formKey,
+        key: _formKey,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Item: ${product['item_name']}",
+                'Item: ${widget.product['item_name'] ?? _item.name}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              const SizedBox(height: 4),
+              if (_hasVariants) ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedOptionName,
+                  decoration: const InputDecoration(
+                    labelText: 'Option',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _item.options
+                      .where((option) => option.variants.isNotEmpty)
+                      .map(
+                        (option) => DropdownMenuItem(
+                          value: option.name,
+                          child: Text(option.name),
+                        ),
+                      )
+                      .toList(),
+                  validator: (value) =>
+                      value == null ? 'Select an option' : null,
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedOptionName = value;
+                      _selectedVariantName = null;
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  key: ValueKey(_selectedOptionName),
+                  initialValue: _selectedVariantName,
+                  decoration: const InputDecoration(
+                    labelText: 'Variant',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: selectedOption?.variants
+                      .map(
+                        (variant) => DropdownMenuItem(
+                          value: variant.name,
+                          child: Text(
+                            '${variant.name} (Stock: ${variant.stock})',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  validator: (value) =>
+                      value == null ? 'Select a variant' : null,
+                  onChanged: selectedOption == null
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _selectedVariantName = value;
+                          });
+                        },
+                ),
+              ],
+              const SizedBox(height: 12),
               Text(
-                "Current Stock: ${product['balance'] ?? 0}",
+                'Current stock: ${_hasVariants && _selectedVariantStock == null ? 'Select a variant' : _currentBalance}',
                 style: const TextStyle(color: Colors.grey),
               ),
               const Divider(height: 24),
-
-              // Qty Input Field
               TextFormField(
-                controller: qtyController,
+                controller: _quantityController,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: "Quantity",
+                  labelText: 'Quantity',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.pin),
                 ),
                 validator: (value) {
-                  if (value == null || value.isEmpty) return "Enter quantity";
-                  final int? qty = int.tryParse(value);
-                  if (qty == null || qty <= 0) return "Enter a valid number";
-                  if (!isIn && qty > (product['balance'] ?? 0)) {
-                    return "Not enough stock available!";
+                  if (value == null || value.isEmpty) return 'Enter quantity';
+                  final quantity = int.tryParse(value);
+                  if (quantity == null || quantity <= 0) {
+                    return 'Enter a valid number';
+                  }
+                  if (_hasVariants && _selectedVariantStock == null) {
+                    return 'Select an option variant';
+                  }
+                  if (!_isIn && quantity > _currentBalance) {
+                    return 'Not enough stock available';
                   }
                   return null;
                 },
               ),
               const SizedBox(height: 16),
-
-              // Note Input Field
               TextFormField(
-                controller: noteController,
+                controller: _noteController,
                 decoration: const InputDecoration(
-                  labelText: "Note / Description (Optional)",
+                  labelText: 'Note / Description (Optional)',
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.note_alt_outlined),
                 ),
@@ -91,8 +207,8 @@ class StockActionDialog extends StatelessWidget {
       ),
       actions: [
         TextButton(
-          onPressed: () => Get.back(),
-          child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
+          onPressed: _isSaving ? null : () => Get.back(),
+          child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
         ),
         ElevatedButton(
           style: ElevatedButton.styleFrom(
@@ -102,23 +218,14 @@ class StockActionDialog extends StatelessWidget {
               borderRadius: BorderRadius.circular(8),
             ),
           ),
-          onPressed: () async {
-            if (formKey.currentState!.validate()) {
-              // Dialog එක වහනවා
-              Get.back();
-
-              // Database එක Update කරන්න Controller එකට දත්ත යවනවා
-              await controller.updateStock(
-                productId: product['id'],
-                itemName: product['item_name'],
-                quantity: int.parse(qtyController.text),
-                currentBalance: product['balance'] ?? 0,
-                type: type,
-                note: noteController.text,
-              );
-            }
-          },
-          child: const Text("Submit"),
+          onPressed: _isSaving ? null : _submit,
+          child: _isSaving
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Submit'),
         ),
       ],
     );

@@ -45,6 +45,12 @@ class CartView extends StatelessWidget {
                   // Image key එක null හෝ empty ද කියලා check කරනවා
                   final String imageUrl =
                       (item['main_image'] ?? item['image'] ?? '').toString();
+                  final rawAttributes = item['selectedAttributes'];
+                  final attributes = rawAttributes is Map
+                      ? rawAttributes.entries
+                            .map((entry) => '${entry.key}: ${entry.value}')
+                            .join(', ')
+                      : '';
 
                   return Card(
                     margin: const EdgeInsets.symmetric(
@@ -66,7 +72,10 @@ class CartView extends StatelessWidget {
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: Text(
-                        "LKR ${(item['price'] ?? 0).toStringAsFixed(2)} x ${item['quantity'] ?? 1}",
+                        [
+                          if (attributes.isNotEmpty) attributes,
+                          "LKR ${(item['price'] ?? 0).toStringAsFixed(2)} x ${item['quantity'] ?? 1}",
+                        ].join('\n'),
                       ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,

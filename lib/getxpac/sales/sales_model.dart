@@ -5,6 +5,7 @@ import 'package:get/get_navigation/src/extension_navigation.dart';
 import 'package:get/get_rx/src/rx_types/rx_types.dart';
 import 'package:get/get_state_manager/src/simple/get_controllers.dart';
 import 'package:own/getxpac/front_page.dart';
+import 'package:own/getxpac/sales_item/item_model.dart';
 
 class SalesModel {
   final String? id;
@@ -120,6 +121,7 @@ class SalesController extends GetxController {
 
       var items = snap.docs.map((doc) {
         final d = doc.data();
+        final item = ItemModel.fromMap(d, id: doc.id);
         return {
           'id': doc
               .id, // 🌟 FIX: 'docId' වෙනුවට කෙලින්ම 'id' කියලා ගත්තා ලේසි වෙන්න
@@ -127,6 +129,7 @@ class SalesController extends GetxController {
           'description': d['description'] ?? '',
           'balance': d['balance'] ?? 0,
           'price': (d['price'] ?? 0).toDouble(),
+          'options': item.options.map((option) => option.toMap()).toList(),
         };
       }).toList();
 
@@ -155,25 +158,42 @@ class SalesController extends GetxController {
   }
 
   // 🛒 2. Cart එකට Item එකතු කිරීම
-  void addItemToCart(Map<String, dynamic> stock) {
-    int index = selectedItems.indexWhere(
-      (item) => item['id'] == stock['id'],
-    ); // 🌟 FIX: ID එකෙන් check කරන්නේ
+  void addItemToCart(
+    Map<String, dynamic> stock, {
+    String? optionName,
+    String? variantName,
+    double? unitPrice,
+    int? availableStock,
+  }) {
+    final id = stock['id'].toString();
+    final cartKey = '$id::${optionName ?? ''}::${variantName ?? ''}';
+    final index = selectedItems.indexWhere(
+      (item) => item['cartKey'] == cartKey,
+    );
 
     if (index >= 0) {
       increaseQty(index);
     } else {
       selectedItems.add({
-        'id': stock['id'], // 🌟 Document ID එකම යනවා
+        'cartKey': cartKey,
+        'id': id,
         'name': stock['item_name'],
         'quantity': 1,
-        'price': stock['price'],
+        'price': unitPrice ?? _asDouble(stock['price']),
+        'optionName': optionName,
+        'variantName': variantName,
+        'availableStock': availableStock ?? _asInt(stock['balance']),
       });
       calculateTotal();
     }
   }
 
   void increaseQty(int index) {
+    if (_asInt(selectedItems[index]['quantity']) >=
+        _asInt(selectedItems[index]['availableStock'])) {
+      Get.snackbar("Stock limit", "There is no more stock for this selection.");
+      return;
+    }
     selectedItems[index]['quantity'] += 1;
     selectedItems.refresh(); // GetX වලට ලිස්ට් එක update වුන බව කියන්න
     calculateTotal();
@@ -206,7 +226,7 @@ class SalesController extends GetxController {
     String? address,
     String? phone2,
   }) async {
-    double finalAmount =
+    final double finalAmount =
         double.tryParse(amountController.text.trim()) ?? totalAmount.value;
     if (selectedItems.isEmpty) {
       Get.snackbar("Error", "No items added to sale");
@@ -215,12 +235,32 @@ class SalesController extends GetxController {
 
     try {
       isLoading.value = true;
-      WriteBatch batch = _db.batch();
-      DocumentReference saleRef = _db.collection('sales_new').doc();
+      final saleRef = _db.collection('sales_new').doc();
+      final summaryRef = _db.collection('sales_summary').doc('overall');
+      final productRefs = <String, DocumentReference<Map<String, dynamic>>>{};
+      for (final item in selectedItems) {
+        final productId = item['id'].toString();
+        productRefs.putIfAbsent(
+          productId,
+          () => _db.collection('stock').doc(productId),
+        );
+      }
+      final saleItems = selectedItems
+          .map(
+            (item) => <String, dynamic>{
+              'id': item['id'].toString(),
+              'name': item['name'].toString(),
+              'quantity': _asInt(item['quantity']),
+              'price': _asDouble(item['price']),
+              'optionName': item['optionName'],
+              'variantName': item['variantName'],
+            },
+          )
+          .toList();
 
       SalesModel newSale = SalesModel(
         customerPhone: phone,
-        items: selectedItems,
+        items: saleItems,
         totalAmount: finalAmount,
         createdAt: DateTime.now(),
         note: null,
@@ -237,48 +277,120 @@ class SalesController extends GetxController {
         destinationCity: null,
       );
 
-      batch.set(saleRef, newSale.toMap());
+      await _db.runTransaction((transaction) async {
+        final snapshots = <String, DocumentSnapshot<Map<String, dynamic>>>{};
+        for (final entry in productRefs.entries) {
+          snapshots[entry.key] = await transaction.get(entry.value);
+        }
 
-      DocumentReference globalSalesSummaryRef = _db
-          .collection('sales_summary')
-          .doc('overall');
+        final updatedOptionsByProduct = <String, List<Map<String, dynamic>>>{};
+        final updatedBalances = <String, int>{};
+        transaction.set(saleRef, newSale.toMap());
+        transaction.set(summaryRef, {
+          'total_revenue': FieldValue.increment(finalAmount),
+          'total_orders': FieldValue.increment(1),
+          'last_updated': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
-      // 5. 📉 Summary එකෙන් මුදල් සහ ඕඩර් ගණන අඩු කිරීම
-      batch.set(globalSalesSummaryRef, {
-        'total_revenue': FieldValue.increment(totalAmount.value),
-        'total_orders': FieldValue.increment(1),
-        'last_updated': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+        for (final item in selectedItems) {
+          final productId = item['id'].toString();
+          final productRef = productRefs[productId]!;
+          final productData = snapshots[productId]?.data();
+          if (productData == null) {
+            throw StateError('Item "${item['name']}" is no longer available.');
+          }
 
-      // 🔄 Items හරහා ලූප් එක
-      for (var item in selectedItems) {
-        String productId =
-            item['id']; // 🌟 FIX: දැන් මෙතනට 100% ක්ම නිවැරදි Firestore Document ID එක ලැබෙනවා
-        String itemName = item['name'] ?? 'Unknown Item';
-        int quantitySold = int.tryParse(item['quantity'].toString()) ?? 1;
+          final quantity = _asInt(item['quantity']);
+          final optionName = item['optionName']?.toString();
+          final variantName = item['variantName']?.toString();
+          var variantBalanceAfter = 0;
+          late int balanceAfter;
 
-        DocumentReference productRef = _db.collection('stock').doc(productId);
+          if (optionName != null && variantName != null) {
+            final options = updatedOptionsByProduct.putIfAbsent(
+              productId,
+              () => ItemModel.fromMap(
+                productData,
+                id: productId,
+              ).options.map((option) => option.toMap()).toList(),
+            );
+            var matched = false;
+            for (final option in options) {
+              if (option['name'] != optionName) continue;
+              final rawVariants = option['variants'];
+              if (rawVariants is! Iterable) break;
+              final variants = rawVariants
+                  .whereType<Map>()
+                  .map((variant) => Map<String, dynamic>.from(variant))
+                  .toList();
+              for (final variant in variants) {
+                if (variant['name'] != variantName) continue;
+                final currentStock = _asInt(variant['stock']);
+                if (quantity > currentStock) {
+                  throw StateError(
+                    'Not enough stock for ${item['name']} ($variantName).',
+                  );
+                }
+                variantBalanceAfter = currentStock - quantity;
+                variant['stock'] = variantBalanceAfter;
+                matched = true;
+                break;
+              }
+              option['variants'] = variants;
+              break;
+            }
+            if (!matched) {
+              throw StateError(
+                'The selected option for ${item['name']} is no longer available.',
+              );
+            }
+            balanceAfter = options.fold<int>(0, (total, option) {
+              final variants = option['variants'];
+              if (variants is! Iterable) return total;
+              return total +
+                  variants.whereType<Map>().fold<int>(
+                    0,
+                    (subtotal, variant) =>
+                        subtotal + _asInt(variant['stock']),
+                  );
+            });
+            updatedBalances[productId] = balanceAfter;
+          } else {
+            final currentStock = updatedBalances.putIfAbsent(
+              productId,
+              () => _asInt(productData['balance'] ?? productData['stock']),
+            );
+            if (quantity > currentStock) {
+              throw StateError('Not enough stock for ${item['name']}.');
+            }
+            balanceAfter = currentStock - quantity;
+            updatedBalances[productId] = balanceAfter;
+          }
 
-        // Stock එක අඩු කිරීම
-        batch.update(productRef, {
-          'balance': FieldValue.increment(-quantitySold),
-          'updated_at': FieldValue.serverTimestamp(),
-        });
+          final transRef = productRef.collection('transactions').doc();
+          transaction.set(transRef, {
+            'quantity': quantity,
+            'type': 'out',
+            'note': 'Sales Transaction (Order: ${saleRef.id})',
+            'timestamp': FieldValue.serverTimestamp(),
+            'item_name': item['name'],
+            'balance_after': balanceAfter,
+            'option_name': optionName,
+            'variant_name': variantName,
+            'variant_balance_after': variantBalanceAfter,
+          });
+        }
 
-        // Sub-collection එකට Transaction එක දැමීම
-        DocumentReference transRef = productRef
-            .collection('transactions')
-            .doc();
-        batch.set(transRef, {
-          'quantity': -quantitySold,
-          'type': 'out',
-          'note': 'Sales Transaction (Order: ${saleRef.id})',
-          'timestamp': FieldValue.serverTimestamp(),
-          'item_name': itemName,
-        });
-      }
-
-      await batch.commit();
+        for (final entry in updatedBalances.entries) {
+          final update = <String, dynamic>{
+            'balance': entry.value,
+            'updated_at': FieldValue.serverTimestamp(),
+          };
+          final options = updatedOptionsByProduct[entry.key];
+          if (options != null) update['options'] = options;
+          transaction.update(productRefs[entry.key]!, update);
+        }
+      });
       Get.snackbar(
         "Success",
         "Sale recorded and stock updated successfully",
@@ -388,5 +500,15 @@ class SalesController extends GetxController {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  int _asInt(dynamic value) {
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  double _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 }

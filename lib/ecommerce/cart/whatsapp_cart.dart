@@ -18,8 +18,15 @@ String generateWhatsAppMessage({
     int qty = item['quantity'] ?? 0;
     double price = item['price'] ?? 0.0;
     double totalItemPrice = price * qty;
+    final rawAttributes = item['selectedAttributes'];
+    final attributes = rawAttributes is Map
+        ? rawAttributes.entries
+              .map((entry) => '${entry.key}: ${entry.value}')
+              .join(', ')
+        : '';
     buffer.writeln(
-      "- $itemName (x$qty) - LKR ${totalItemPrice.toStringAsFixed(2)}",
+      "- $itemName${attributes.isEmpty ? '' : ' ($attributes)'} "
+      "(x$qty) - LKR ${totalItemPrice.toStringAsFixed(2)}",
     );
   }
 

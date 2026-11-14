@@ -13,7 +13,7 @@ class CategorySection extends StatelessWidget {
         ? Get.find<StockListController>()
         : Get.put(StockListController());
 
-    final categories = ["Smart Things", "Accessories", "Other Items"];
+    final categories = ["All", "Smart Things", "Accessories", "Other Items"];
 
     return Padding(
       // Padding එක පොඩ්ඩක් web එකටත් ලස්සන වෙන්න adjust කළා
@@ -38,27 +38,33 @@ class CategorySection extends StatelessWidget {
           runSpacing: 10,
           alignment: WrapAlignment.start, // Chips වමේ ඉඳන් ලස්සනට පෙළගස්වන්න
           children: categories.map((cat) {
-            final isSelected = controller.selectedCategory.value == cat;
+            final isSelected = cat == "All"
+                ? controller.selectedCategory.value.isEmpty
+                : controller.selectedCategory.value == cat;
 
             return ChoiceChip(
               label: Text(
                 cat,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : Colors.black87,
+                  color: isSelected
+                      ? const Color(0xFF07152F)
+                      : const Color(0xFFD8E4F4),
                   fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                   fontSize: 13, // Standard font size for cross-platform
                 ),
               ),
               selected: isSelected,
-              selectedColor: Colors.black,
-              backgroundColor: const Color(0xFFF6F6F8),
+              selectedColor: const Color(0xFF35D0BA),
+              backgroundColor: const Color(0xFF17345C),
               onSelected: (bool selected) {
                 controller.changeCategory(cat);
               },
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(20),
                 side: BorderSide(
-                  color: isSelected ? Colors.black : Colors.grey.shade300,
+                  color: isSelected
+                      ? const Color(0xFF35D0BA)
+                      : const Color(0xFF355074),
                 ),
               ),
               showCheckmark: false,

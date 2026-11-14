@@ -39,6 +39,33 @@ class ProductCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
+            if (product.selectedAttributes.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                children: product.selectedAttributes.entries
+                    .map(
+                      (entry) => Chip(
+                        label: Text(
+                          '${entry.key}: ${entry.value}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: EdgeInsets.zero,
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
+            if (product.sku.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                'SKU: ${product.sku}',
+                style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              ),
+            ],
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -58,8 +85,9 @@ class ProductCard extends StatelessWidget {
                       'item_name': product.name,
                       'price': product.price,
                       'main_image': product.imageUrl,
-                      'balance':
-                          10, // Default fallback if stock limit isn't explicitly passed
+                      'variantId': product.variantId,
+                      'selectedAttributes': product.selectedAttributes,
+                      'sku': product.sku,
                     });
                   },
                 ),

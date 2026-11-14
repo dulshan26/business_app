@@ -1,19 +1,84 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:own/getxpac/sales_item/item_controller.dart';
+import 'package:own/getxpac/sales_item/item_model.dart';
 import 'package:own/utils/image_picker.dart';
 
 class StockEditPage extends StatefulWidget {
-  final Map<String, dynamic> product; // Edit කරන්න ඕනෙ කරන item එකේ data ටික
+  final Map<String, dynamic>? product;
 
-  const StockEditPage({super.key, required this.product});
+  const StockEditPage({super.key, this.product});
 
   @override
   State<StockEditPage> createState() => _StockEditPageState();
 }
 
+class _OptionEditor {
+  final TextEditingController name;
+  final List<_OptionVariantEditor> variants;
+
+  _OptionEditor({String name = '', List<_OptionVariantEditor>? variants})
+    : name = TextEditingController(text: name),
+      variants = variants ?? [];
+
+  factory _OptionEditor.fromModel(
+    StockOptionModel model, {
+    required String defaultPrice,
+  }) {
+    return _OptionEditor(
+      name: model.name,
+      variants: model.variants
+          .map(
+            (variant) => _OptionVariantEditor.fromModel(
+              variant,
+              defaultPrice: defaultPrice,
+            ),
+          )
+          .toList(growable: true),
+    );
+  }
+
+  void dispose() {
+    name.dispose();
+    for (final variant in variants) {
+      variant.dispose();
+    }
+  }
+}
+
+class _OptionVariantEditor {
+  final TextEditingController name;
+  final TextEditingController price;
+  final TextEditingController stock;
+
+  _OptionVariantEditor({
+    String name = '',
+    String price = '0',
+    String stock = '0',
+  }) : name = TextEditingController(text: name),
+       price = TextEditingController(text: price),
+       stock = TextEditingController(text: stock);
+
+  factory _OptionVariantEditor.fromModel(
+    ProductOptionVariantModel model, {
+    required String defaultPrice,
+  }) {
+    return _OptionVariantEditor(
+      name: model.name,
+      price: model.price?.toString() ?? defaultPrice,
+      stock: model.stock.toString(),
+    );
+  }
+
+  void dispose() {
+    name.dispose();
+    price.dispose();
+    stock.dispose();
+  }
+}
+
 class _StockEditPageState extends State<StockEditPage> {
-  final StockListController controller = Get.find<StockListController>();
+  late final StockListController controller;
 
   final _formKey = GlobalKey<FormState>();
   late TextEditingController nameController;
@@ -30,39 +95,62 @@ class _StockEditPageState extends State<StockEditPage> {
   // 🌟 Image Handle කරන්න variables දෙකක් ගන්නවා
   String? _mainImageUrl;
   List<String> _galleryImageUrls = [];
+  List<String> _descriptionImageUrls = [];
   bool isActive = true;
+  final List<_OptionEditor> _options = [];
 
   @override
   void initState() {
     super.initState();
-    // දැනට තියෙන දත්ත ටික පටන් ගද්දිම TextFields වලට දානවා
-    nameController = TextEditingController(text: widget.product['item_name']);
+    controller = Get.isRegistered<StockListController>()
+        ? Get.find<StockListController>()
+        : Get.put(StockListController());
+
+    final product = widget.product;
+    nameController = TextEditingController(
+      text: product?['item_name']?.toString() ?? '',
+    );
     priceController = TextEditingController(
-      text: widget.product['price'].toString(),
+      text: product?['price']?.toString() ?? '0',
     );
     balanceController = TextEditingController(
-      text: widget.product['balance'].toString(),
+      text: product?['balance']?.toString() ?? '0',
     );
     descriptionController = TextEditingController(
-      text: widget.product['description'] ?? '',
+      text: product?['description']?.toString() ?? '',
     );
 
-    // 🌟 Firestore එකෙන් එන category එක අපේ list එකේ තියෙනවද බලලා set කරගන්නවා
-    String currentCategory = widget.product['category'] ?? '';
+    final String currentCategory = product?['category']?.toString() ?? '';
     if (categories.contains(currentCategory)) {
       selectedCategory = currentCategory;
     } else {
-      selectedCategory = categories.first; // Default එකක් විදිහට පළමු එක දෙනවා
+      selectedCategory = categories.first;
     }
 
-    // 🌟 Firestore එකෙන් දැනට තියෙන Main Image එක සහ Gallery Images ටික Load කරගැනීම
-    _mainImageUrl = widget.product['main_image'];
+    _mainImageUrl = product?['main_image']?.toString();
 
-    if (widget.product['images'] != null) {
-      _galleryImageUrls = List<String>.from(widget.product['images']);
+    if (product?['images'] is List) {
+      _galleryImageUrls = List<String>.from(product!['images']);
+    }
+    if (product?['description_images'] is List) {
+      _descriptionImageUrls = List<String>.from(
+        product!['description_images'],
+      );
     }
 
-    isActive = widget.product['isActive'] ?? true;
+    isActive = product?['isActive'] as bool? ?? true;
+
+    if (product != null) {
+      final item = ItemModel.fromMap(product);
+      _options.addAll(
+        item.options.map(
+          (option) => _OptionEditor.fromModel(
+            option,
+            defaultPrice: priceController.text,
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -71,7 +159,131 @@ class _StockEditPageState extends State<StockEditPage> {
     priceController.dispose();
     balanceController.dispose();
     descriptionController.dispose();
+    for (final option in _options) {
+      option.dispose();
+    }
     super.dispose();
+  }
+
+  List<StockOptionModel>? _readOptions() {
+    final options = <StockOptionModel>[];
+    final names = <String>{};
+
+    for (final option in _options) {
+      final name = option.name.text.trim();
+      final variants = <ProductOptionVariantModel>[];
+      final variantNames = <String>{};
+
+      if (name.isEmpty || option.variants.isEmpty) {
+        Get.snackbar(
+          "Invalid option",
+          "Enter an option name and add at least one variant.",
+        );
+        return null;
+      }
+      if (!names.add(name.toLowerCase())) {
+        Get.snackbar("Invalid option", "Option names must be unique.");
+        return null;
+      }
+      for (final variant in option.variants) {
+        final variantName = variant.name.text.trim();
+        final price = double.tryParse(variant.price.text.trim());
+        final stock = int.tryParse(variant.stock.text.trim());
+        if (variantName.isEmpty ||
+            price == null ||
+            price < 0 ||
+            stock == null ||
+            stock < 0) {
+          Get.snackbar(
+            "Invalid variant",
+            "Enter a variant name, a valid non-negative price, and a valid non-negative stock count.",
+          );
+          return null;
+        }
+        if (!variantNames.add(variantName.toLowerCase())) {
+          Get.snackbar(
+            "Invalid variant",
+            "Variant names must be unique within an option.",
+          );
+          return null;
+        }
+        variants.add(
+          ProductOptionVariantModel(
+            name: variantName,
+            price: price,
+            stock: stock,
+          ),
+        );
+      }
+
+      options.add(StockOptionModel(name: name, variants: variants));
+    }
+
+    return options;
+  }
+
+  Future<void> _saveItem() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    final options = _readOptions();
+    if (options == null) return;
+
+    final baseStockText = balanceController.text.trim();
+    final baseStock = int.tryParse(baseStockText);
+    if (baseStock == null || baseStock < 0) {
+      Get.snackbar(
+        'Invalid stock',
+        'Please enter a valid non-negative stock amount.',
+      );
+      return;
+    }
+
+    final stock = options.isEmpty
+        ? baseStock
+        : options
+              .expand((option) => option.variants)
+              .fold<int>(0, (total, variant) => total + variant.stock);
+
+    final priceText = priceController.text.trim();
+    final price = double.tryParse(priceText);
+    if (price == null || price < 0) {
+      Get.snackbar('Invalid price', 'Please enter a valid non-negative price.');
+      return;
+    }
+
+    final bool saved;
+    if (widget.product == null) {
+      saved = await controller.addItem(
+        name: nameController.text.trim(),
+        description: descriptionController.text.trim(),
+        category: selectedCategory ?? '',
+        price: price,
+        initialStock: stock,
+        mainImage: _mainImageUrl ?? '',
+        images: _galleryImageUrls,
+        isActive: isActive,
+        options: options,
+        descriptionImages: _descriptionImageUrls,
+      );
+    } else {
+      saved = await controller.editStockItem(
+        productId: widget.product!['id'],
+        name: nameController.text.trim(),
+        description: descriptionController.text.trim(),
+        category: selectedCategory ?? '',
+        price: price,
+        balance: stock,
+        isActive: isActive,
+        mainImage: _mainImageUrl ?? '',
+        images: _galleryImageUrls,
+        options: options,
+        descriptionImages: _descriptionImageUrls,
+      );
+    }
+
+    if (saved && mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   // 📸 Main Image එක Upload කරන්න BottomSheet එක open කරන Function එක
@@ -114,20 +326,43 @@ class _StockEditPageState extends State<StockEditPage> {
     );
   }
 
+  void _openDescriptionImageUploader() {
+    Get.bottomSheet(
+      SizedBox(
+        height: Get.height * 0.6,
+        child: ImageUploadWidget(
+          storagePath: 'products/description/',
+          onUploaded: (url) {
+            if (!mounted) return;
+            setState(() {
+              _descriptionImageUrls.add(url);
+            });
+            Get.back();
+          },
+        ),
+      ),
+      isScrollControlled: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Edit Stock Item"),
+        title: Text(
+          widget.product == null ? "Add Stock Item" : "Edit Stock Item",
+        ),
         backgroundColor: Colors.blueGrey,
         foregroundColor: Colors.white,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            children: [
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              children: [
               const SizedBox(height: 10),
 
               // ==========================================
@@ -307,10 +542,11 @@ class _StockEditPageState extends State<StockEditPage> {
                   prefixIcon: Icon(Icons.attach_money_rounded),
                 ),
                 validator: (value) {
-                  if (value!.isEmpty) return "Please enter price";
-                  if (double.tryParse(value) == null) {
+                  final price = double.tryParse(value ?? '');
+                  if (price == null) {
                     return "Enter a valid price";
                   }
+                  if (price < 0) return "Price cannot be negative";
                   return null;
                 },
               ),
@@ -319,17 +555,19 @@ class _StockEditPageState extends State<StockEditPage> {
               // 3. Balance / Stock Field
               TextFormField(
                 controller: balanceController,
+                enabled: _options.isEmpty,
                 keyboardType: TextInputType.number,
                 decoration: const InputDecoration(
-                  labelText: "Current Stock Balance",
+                  labelText: "Stock (used when there are no options)",
                   border: OutlineInputBorder(),
                   prefixIcon: Icon(Icons.inventory_2_rounded),
                 ),
                 validator: (value) {
-                  if (value!.isEmpty) return "Please enter stock balance";
-                  if (int.tryParse(value) == null) {
+                  final stock = int.tryParse(value ?? '');
+                  if (stock == null) {
                     return "Enter a valid integer";
                   }
+                  if (stock < 0) return "Stock cannot be negative";
                   return null;
                 },
               ),
@@ -344,6 +582,80 @@ class _StockEditPageState extends State<StockEditPage> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      "Description Images",
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: _openDescriptionImageUploader,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                    label: const Text("Add image"),
+                  ),
+                ],
+              ),
+              if (_descriptionImageUrls.isNotEmpty)
+                SizedBox(
+                  height: 100,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _descriptionImageUrls.length,
+                    itemBuilder: (context, index) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(
+                              _descriptionImageUrls[index],
+                              width: 100,
+                              height: 100,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
+                                    width: 100,
+                                    height: 100,
+                                    color: Colors.grey.shade200,
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.broken_image_outlined,
+                                    ),
+                                  ),
+                            ),
+                          ),
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: IconButton(
+                              onPressed: () {
+                                setState(() {
+                                  _descriptionImageUrls.removeAt(index);
+                                });
+                              },
+                              constraints: const BoxConstraints.tightFor(
+                                width: 28,
+                                height: 28,
+                              ),
+                              padding: EdgeInsets.zero,
+                              style: IconButton.styleFrom(
+                                backgroundColor: Colors.black54,
+                              ),
+                              icon: const Icon(
+                                Icons.close,
+                                size: 16,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
               const SizedBox(height: 16),
 
               // 🌟 5. Dynamic Category Dropdown Field (Updated)
@@ -381,6 +693,182 @@ class _StockEditPageState extends State<StockEditPage> {
                   });
                 },
               ),
+              const SizedBox(height: 12),
+
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              "Options and Variants",
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                _options.add(_OptionEditor());
+                              });
+                            },
+                            icon: const Icon(Icons.add),
+                            label: const Text("Add option"),
+                          ),
+                        ],
+                      ),
+                      const Text(
+                        "Add variants under each option and set each variant's stock.",
+                        style: TextStyle(color: Colors.black54, fontSize: 12),
+                      ),
+                      const SizedBox(height: 8),
+                      ..._options.asMap().entries.map((entry) {
+                        final index = entry.key;
+                        final option = entry.value;
+                        return Card(
+                          color: Colors.grey.shade50,
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextField(
+                                        controller: option.name,
+                                        decoration: const InputDecoration(
+                                          labelText: "Option name",
+                                          hintText: "Size",
+                                          border: OutlineInputBorder(),
+                                          isDense: true,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: "Remove option",
+                                      onPressed: () {
+                                        setState(() {
+                                          _options.removeAt(index).dispose();
+                                        });
+                                      },
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.red,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                ...option.variants.asMap().entries.map((
+                                  variantEntry,
+                                ) {
+                                  final variantIndex = variantEntry.key;
+                                  final variant = variantEntry.value;
+                                  return Padding(
+                                    padding: const EdgeInsets.only(bottom: 8),
+                                    child: Column(
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: TextField(
+                                                controller: variant.name,
+                                                decoration:
+                                                    const InputDecoration(
+                                                      labelText: "Variant",
+                                                      hintText: "Small",
+                                                      border:
+                                                          OutlineInputBorder(),
+                                                      isDense: true,
+                                                    ),
+                                              ),
+                                            ),
+                                            IconButton(
+                                              tooltip: "Remove variant",
+                                              onPressed: () {
+                                                setState(() {
+                                                  option.variants
+                                                      .removeAt(variantIndex)
+                                                      .dispose();
+                                                });
+                                              },
+                                              icon: const Icon(
+                                                Icons.remove_circle_outline,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: TextField(
+                                                controller: variant.price,
+                                                keyboardType:
+                                                    const TextInputType.numberWithOptions(
+                                                      decimal: true,
+                                                    ),
+                                                decoration:
+                                                    const InputDecoration(
+                                                      labelText: "Price",
+                                                      border:
+                                                          OutlineInputBorder(),
+                                                      isDense: true,
+                                                    ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Expanded(
+                                              child: TextField(
+                                                controller: variant.stock,
+                                                keyboardType:
+                                                    TextInputType.number,
+                                                decoration:
+                                                    const InputDecoration(
+                                                      labelText: "Stock",
+                                                      border:
+                                                          OutlineInputBorder(),
+                                                      isDense: true,
+                                                    ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        const Divider(height: 1),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                                TextButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      option.variants.add(
+                                        _OptionVariantEditor(
+                                          price: priceController.text,
+                                        ),
+                                      );
+                                    });
+                                  },
+                                  icon: const Icon(Icons.add),
+                                  label: const Text("Add variant"),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ),
               const SizedBox(height: 24),
 
               // ==========================================
@@ -398,31 +886,14 @@ class _StockEditPageState extends State<StockEditPage> {
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    onPressed: controller.isLoading.value
-                        ? null
-                        : () async {
-                            if (_formKey.currentState!.validate()) {
-                              // 🌟 Controller එකට `selectedCategory` එක කෙලින්ම pass කරනවා
-                              await controller.editStockItem(
-                                productId: widget.product['id'],
-                                name: nameController.text.trim(),
-                                description: descriptionController.text.trim(),
-                                category: selectedCategory ?? '', // 🔥 Updated
-                                price: double.parse(priceController.text),
-                                balance: int.parse(balanceController.text),
-                                isActive: isActive,
-                                mainImage: _mainImageUrl ?? '',
-                                images: _galleryImageUrls,
-                              );
-
-                              Navigator.of(context).pop();
-                            }
-                          },
+                    onPressed: controller.isLoading.value ? null : _saveItem,
                     child: controller.isLoading.value
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            "UPDATE STOCK ITEM",
-                            style: TextStyle(
+                        : Text(
+                            widget.product == null
+                                ? "SAVE ITEM"
+                                : "UPDATE STOCK ITEM",
+                            style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
                             ),
@@ -430,7 +901,8 @@ class _StockEditPageState extends State<StockEditPage> {
                   ),
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
